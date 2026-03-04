@@ -6,8 +6,9 @@
     "bg_sample_margin": 24,
     "bg_color_tolerance": 44,
     "edge_expand_tolerance": 10,
-    "soft_outer_tolerance": 12,
-    "soft_inner_tolerance": 52
+    "target_component_tolerance": 34,
+    "component_min_area": 80,
+    "edge_feather_px": 1
   },
   "outputs": [
     {

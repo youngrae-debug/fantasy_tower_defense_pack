@@ -5,7 +5,7 @@ Deterministic workflow:
 1) Read bounding boxes from config.
 2) Try auto-detection inside each search rect based on sampled background color.
 3) If auto-detection cannot find a valid component, fallback to config bbox.
-4) Remove background connected to crop edges and export padded transparent PNGs.
+4) Isolate target connected component and export padded transparent PNGs.
 """
 
 from __future__ import annotations
@@ -17,11 +17,9 @@ from pathlib import Path
 from statistics import median
 from typing import Dict, Iterable, Optional, Tuple
 
-
 Rect = Tuple[int, int, int, int]
 np = None
 Image = None
-
 
 
 def clamp_rect(rect: Rect, width: int, height: int) -> Rect:
@@ -76,7 +74,6 @@ def extract_components(mask: np.ndarray, min_area: int) -> list[tuple[Rect, int]
                 max_x = max(max_x, cx)
                 min_y = min(min_y, cy)
                 max_y = max(max_y, cy)
-
                 for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
                     if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx] and mask[ny, nx]:
                         visited[ny, nx] = True
@@ -88,27 +85,43 @@ def extract_components(mask: np.ndarray, min_area: int) -> list[tuple[Rect, int]
     return components
 
 
-def choose_component(
-    components: list[tuple[Rect, int]],
-    expected_rect: Optional[Rect],
-    default_to_largest: bool = True,
-) -> Optional[Rect]:
+def rect_iou(a: Rect, b: Rect) -> float:
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    ix0, iy0 = max(ax0, bx0), max(ay0, by0)
+    ix1, iy1 = min(ax1, bx1), min(ay1, by1)
+    iw, ih = max(0, ix1 - ix0), max(0, iy1 - iy0)
+    inter = iw * ih
+    area_a = max(0, ax1 - ax0) * max(0, ay1 - ay0)
+    area_b = max(0, bx1 - bx0) * max(0, by1 - by0)
+    union = area_a + area_b - inter
+    return (inter / union) if union > 0 else 0.0
+
+
+def rect_center_distance(a: Rect, b: Rect) -> float:
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    acx, acy = (ax0 + ax1) / 2.0, (ay0 + ay1) / 2.0
+    bcx, bcy = (bx0 + bx1) / 2.0, (by0 + by1) / 2.0
+    dx, dy = acx - bcx, acy - bcy
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def choose_component(components: list[tuple[Rect, int]], expected_rect: Optional[Rect]) -> Optional[Rect]:
     if not components:
         return None
-
     if expected_rect is None:
-        return max(components, key=lambda c: c[1])[0] if default_to_largest else None
+        return max(components, key=lambda c: c[1])[0]
 
     best_rect = None
-    best_score = -1.0
+    best_score = -1e18
     for rect, area in components:
         iou = rect_iou(rect, expected_rect)
         center_dist = rect_center_distance(rect, expected_rect)
-        score = (iou * 10000.0) - (center_dist * 5.0) + float(area)
+        score = (iou * 15000.0) - (center_dist * 8.0) + float(area)
         if score > best_score:
             best_score = score
             best_rect = rect
-
     return best_rect
 
 
@@ -137,60 +150,57 @@ def detect_bbox_in_search(
     return x0 + rx0, y0 + ry0, x0 + rx1, y0 + ry1
 
 
-def edge_connected_bg_mask(rgb: np.ndarray, bg: np.ndarray, tol: float) -> np.ndarray:
-    h, w, _ = rgb.shape
-    near_bg = dist_to_bg(rgb, bg) <= tol
-    visited = np.zeros((h, w), dtype=bool)
-    q = deque()
-
-    for x in range(w):
-        if near_bg[0, x]:
-            q.append((x, 0))
-            visited[0, x] = True
-        if near_bg[h - 1, x] and not visited[h - 1, x]:
-            q.append((x, h - 1))
-            visited[h - 1, x] = True
-
-    for y in range(h):
-        if near_bg[y, 0] and not visited[y, 0]:
-            q.append((0, y))
-            visited[y, 0] = True
-        if near_bg[y, w - 1] and not visited[y, w - 1]:
-            q.append((w - 1, y))
-            visited[y, w - 1] = True
-
-    while q:
-        cx, cy = q.popleft()
-        for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
-            if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx] and near_bg[ny, nx]:
-                visited[ny, nx] = True
-                q.append((nx, ny))
-
-    return visited
+def add_padding(rect: Rect, padding: int, width: int, height: int) -> Rect:
+    x0, y0, x1, y1 = rect
+    return clamp_rect((x0 - padding, y0 - padding, x1 + padding, y1 + padding), width, height)
 
 
-def build_alpha_matte(
-    crop_rgb: np.ndarray,
+def component_mask_from_crop(
+    crop: np.ndarray,
     bg: np.ndarray,
-    edge_tol: float,
-    soft_outer_tol: float,
-    soft_inner_tol: float,
+    expected_rect_in_crop: Rect,
+    min_area: int,
+    fg_tol: float,
 ) -> np.ndarray:
-    """Build alpha matte by combining edge-connected background + soft color-distance ramp."""
-    d = dist_to_bg(crop_rgb, bg)
-    edge_bg = edge_connected_bg_mask(crop_rgb, bg, tol=edge_tol)
+    fg_mask = dist_to_bg(crop, bg) > fg_tol
+    components = extract_components(fg_mask, min_area=max(20, min_area // 8))
+    chosen = choose_component(components, expected_rect_in_crop)
+    if chosen is None:
+        # fallback to coarse mask; still deterministic
+        return fg_mask
 
-    alpha = np.full(d.shape, 255.0, dtype=np.float32)
-    alpha[edge_bg] = 0.0
+    x0, y0, x1, y1 = chosen
+    local = fg_mask[y0:y1, x0:x1]
+    # Keep only connected pixels inside chosen bbox to prevent neighbor bleed.
+    sub_components = extract_components(local, min_area=1)
+    if not sub_components:
+        return fg_mask
+    # Here local already from chosen bbox; largest component is target detail area.
+    lx0, ly0, lx1, ly1 = max(sub_components, key=lambda c: c[1])[0]
 
-    # Soft transition near background color to reduce halos.
-    if soft_inner_tol <= soft_outer_tol:
-        soft_inner_tol = soft_outer_tol + 1.0
-    in_soft_band = (d > soft_outer_tol) & (d < soft_inner_tol)
-    alpha[in_soft_band] = ((d[in_soft_band] - soft_outer_tol) / (soft_inner_tol - soft_outer_tol)) * 255.0
-    alpha[d <= soft_outer_tol] = 0.0
+    keep = np.zeros_like(fg_mask, dtype=bool)
+    keep[y0 + ly0 : y0 + ly1, x0 + lx0 : x0 + lx1] = local[ly0:ly1, lx0:lx1]
+    return keep
 
-    return np.clip(alpha, 0, 255).astype(np.uint8)
+
+def feather_alpha(mask: np.ndarray, soft_px: int) -> np.ndarray:
+    alpha = np.where(mask, 255, 0).astype(np.uint8)
+    if soft_px <= 0:
+        return alpha
+
+    # Simple deterministic neighbor-averaging feather.
+    a = alpha.astype(np.float32)
+    for _ in range(soft_px):
+        p = np.pad(a, 1, mode="edge")
+        a = (
+            p[1:-1, 1:-1] * 4
+            + p[:-2, 1:-1]
+            + p[2:, 1:-1]
+            + p[1:-1, :-2]
+            + p[1:-1, 2:]
+        ) / 8.0
+        a[mask] = 255.0
+    return np.clip(a, 0, 255).astype(np.uint8)
 
 
 def trim_alpha_bbox(alpha: np.ndarray) -> Optional[Rect]:
@@ -200,31 +210,39 @@ def trim_alpha_bbox(alpha: np.ndarray) -> Optional[Rect]:
     return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
-def add_padding(rect: Rect, padding: int, width: int, height: int) -> Rect:
-    x0, y0, x1, y1 = rect
-    return clamp_rect((x0 - padding, y0 - padding, x1 + padding, y1 + padding), width, height)
+def export_sprite(
+    src_rgb: np.ndarray,
+    rect: Rect,
+    bg: np.ndarray,
+    cfg_alpha: Dict[str, float],
+    padding: int,
+    out_path: Path,
+) -> None:
+    h, w, _ = src_rgb.shape
+    x0, y0, x1, y1 = add_padding(rect, padding, w, h)
+    crop = src_rgb[y0:y1, x0:x1, :].copy()
 
+    expected = (rect[0] - x0, rect[1] - y0, rect[2] - x0, rect[3] - y0)
+    keep_mask = component_mask_from_crop(
+        crop,
+        bg=bg,
+        expected_rect_in_crop=expected,
+        min_area=int(cfg_alpha.get("component_min_area", 60)),
+        fg_tol=float(cfg_alpha.get("target_component_tolerance", cfg_alpha["bg_color_tolerance"])),
+    )
+    alpha = feather_alpha(keep_mask, soft_px=int(cfg_alpha.get("edge_feather_px", 1)))
 
-def rect_iou(a: Rect, b: Rect) -> float:
-    ax0, ay0, ax1, ay1 = a
-    bx0, by0, bx1, by1 = b
-    ix0, iy0 = max(ax0, bx0), max(ay0, by0)
-    ix1, iy1 = min(ax1, bx1), min(ay1, by1)
-    iw, ih = max(0, ix1 - ix0), max(0, iy1 - iy0)
-    inter = iw * ih
-    area_a = max(0, ax1 - ax0) * max(0, ay1 - ay0)
-    area_b = max(0, bx1 - bx0) * max(0, by1 - by0)
-    union = area_a + area_b - inter
-    return (inter / union) if union > 0 else 0.0
+    tight = trim_alpha_bbox(alpha)
+    if tight is None:
+        raise RuntimeError(f"Crop became empty after background removal: {out_path}")
 
+    tx0, ty0, tx1, ty1 = tight
+    crop = crop[ty0:ty1, tx0:tx1, :]
+    alpha = alpha[ty0:ty1, tx0:tx1]
 
-def rect_center_distance(a: Rect, b: Rect) -> float:
-    ax0, ay0, ax1, ay1 = a
-    bx0, by0, bx1, by1 = b
-    acx, acy = (ax0 + ax1) / 2.0, (ay0 + ay1) / 2.0
-    bcx, bcy = (bx0 + bx1) / 2.0, (by0 + by1) / 2.0
-    dx, dy = acx - bcx, acy - bcy
-    return (dx * dx + dy * dy) ** 0.5
+    rgba = np.dstack([crop, alpha])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgba, mode="RGBA").save(out_path)
 
 
 def refine_bbox_near_rect(
@@ -248,48 +266,13 @@ def refine_bbox_near_rect(
     return clamp_rect(tight, w, h)
 
 
-def export_sprite(
-    src_rgb: np.ndarray,
-    rect: Rect,
-    bg: np.ndarray,
-    cfg_alpha: Dict[str, float],
-    padding: int,
-    out_path: Path,
-) -> None:
-    h, w, _ = src_rgb.shape
-    x0, y0, x1, y1 = add_padding(rect, padding, w, h)
-    crop = src_rgb[y0:y1, x0:x1, :].copy()
-
-    alpha = build_alpha_matte(
-        crop,
-        bg=bg,
-        edge_tol=float(cfg_alpha["edge_expand_tolerance"]),
-        soft_outer_tol=float(cfg_alpha.get("soft_outer_tolerance", cfg_alpha["edge_expand_tolerance"])),
-        soft_inner_tol=float(cfg_alpha.get("soft_inner_tolerance", cfg_alpha["bg_color_tolerance"])),
-    )
-
-    tight = trim_alpha_bbox(alpha)
-    if tight is None:
-        raise RuntimeError(f"Crop became empty after background removal: {out_path}")
-
-    tx0, ty0, tx1, ty1 = tight
-    crop = crop[ty0:ty1, tx0:tx1, :]
-    alpha = alpha[ty0:ty1, tx0:tx1]
-
-    rgba = np.dstack([crop, alpha])
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgba, mode="RGBA").save(out_path)
-
-
 def guess_source_from_reference(source: Path) -> Optional[Path]:
     if source.exists():
         return source
     ref_dir = source.parent
     if not ref_dir.exists():
         return None
-    candidates = sorted(
-        [p for p in ref_dir.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}]
-    )
+    candidates = sorted([p for p in ref_dir.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}])
     return candidates[0] if candidates else None
 
 
@@ -339,8 +322,7 @@ def run(config_path: Path, dry_run: bool = False) -> None:
     for item in cfg["outputs"]:
         name = item["name"]
         bbox = clamp_rect(parse_rect(item["bbox"]), w, h)
-        search_rect = parse_rect(item.get("search_rect", item["bbox"]))
-        search_rect = clamp_rect(search_rect, w, h)
+        search_rect = clamp_rect(parse_rect(item.get("search_rect", item["bbox"])), w, h)
         min_area = int(item.get("min_area", 400))
         padding = int(item.get("padding", default_padding))
         min_iou = float(item.get("min_iou_with_bbox", 0.30))
@@ -353,9 +335,7 @@ def run(config_path: Path, dry_run: bool = False) -> None:
             iou = rect_iou(detected, bbox)
             center_shift = rect_center_distance(detected, bbox)
             if iou < min_iou or center_shift > max_center_shift:
-                print(
-                    f"[warn] {name}: auto box rejected (iou={iou:.3f}, center_shift={center_shift:.1f}), using config bbox"
-                )
+                print(f"[warn] {name}: auto box rejected (iou={iou:.3f}, center_shift={center_shift:.1f}), using config bbox")
                 chosen = bbox
                 mode = "fallback(validated)"
             else:
@@ -374,11 +354,7 @@ def run(config_path: Path, dry_run: bool = False) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract sprites from a turnaround reference sheet")
-    parser.add_argument(
-        "--config",
-        default="tools/extract_config.json",
-        help="Path to extraction config JSON",
-    )
+    parser.add_argument("--config", default="tools/extract_config.json", help="Path to extraction config JSON")
     parser.add_argument("--dry-run", action="store_true", help="Resolve boxes without writing files")
     args = parser.parse_args()
 
