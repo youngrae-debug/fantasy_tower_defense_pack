@@ -49,3 +49,10 @@ python3 tools/extract_sprites.py --config tools/extract_config.json
 - `--dry-run`은 소스 이미지가 없어도 설정(`bbox`) 기준으로 검증 로그를 출력합니다.
 - 일반 실행(파일 저장)은 소스 이미지가 필요합니다.
 - 설정한 `source_image`가 없으면, 같은 `Art/Reference` 폴더에서 첫 번째 이미지 파일(`.png/.jpg/.jpeg/.webp`)을 자동으로 찾아 사용합니다.
+
+
+## 미세하게 빗겨 보일 때 튜닝
+- 자동 검출 박스는 `bbox`와 IoU/중심거리 검증을 통과한 경우에만 채택됩니다.
+- 검증 실패 시 설정 `bbox`로 자동 fallback 됩니다.
+- 마지막으로 `refine_margin` 범위에서 전경을 다시 타이트하게 잡아 미세 오프셋을 줄입니다.
+- 필요 시 항목별로 아래 키를 조정하세요: `min_iou_with_bbox`, `max_center_shift`, `refine_margin`.
