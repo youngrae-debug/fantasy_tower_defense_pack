@@ -1,0 +1,36 @@
+# Sprite extraction tool
+
+`extract_sprites.py`는 레퍼런스 시트를 캐릭터 `front/side/back` PNG로 분리합니다.
+(아이템 폼은 나중에 별도 추가 가능)
+
+## 실행
+```bash
+python3 tools/extract_sprites.py
+```
+
+검증만:
+```bash
+python3 tools/extract_sprites.py --dry-run
+```
+
+## character_form 방식 (권장)
+`tools/extract_config.json`의 `character_form`으로 3분할 시트(좌→우)를 자동 분리합니다.
+
+주요 키:
+- `order`: 분할 순서 (예: `front, side, back`)
+- `split_ratios`: X축 분할 비율 2개 (예: `0.3333, 0.6666`)
+- `y_ratio`: 세로 탐색 범위 비율
+- `section_margin_px`: 공통 기본 여백
+- `pose_overrides.<pose>.bbox_adjust_px`: 포즈별 bbox 미세 조정 `[left, top, right, bottom]`
+  - `front`를 조금 더 크게: `[-20, 0, 20, 0]`
+  - `side` 양쪽 줄이기: `[28, 0, -28, 0]`
+
+실행 시 `character_form`이 `outputs` 3개로 확장되어 config에 저장됩니다.
+
+## 배경 제거 옵션
+- `character_form.remove_background: false` 면 배경 제거 없이 그대로 저장
+- `true` 면 목표 컴포넌트만 남기고 나머지를 alpha 0 처리
+
+## 소스 이미지
+- `source_image`가 없으면 같은 `Art/Reference` 폴더의 첫 이미지를 자동 탐색합니다.
+- 이미지가 전혀 없으면 `--dry-run`만 동작합니다.
