@@ -140,13 +140,23 @@ def _crop_rgb(rgb: bytes, src_w: int, rect: Rect) -> tuple[int, int, bytes]:
     return out_w, out_h, bytes(out)
 
 
-def run_fallback_without_numpy_pillow(config_path: Path, cfg: Dict[str, object], source: Path, dry_run: bool = False) -> None:
+def run_fallback_without_numpy_pillow(
+    config_path: Path,
+    cfg: Dict[str, object],
+    source: Path,
+    dry_run: bool = False,
+    rebuild_outputs: bool = False,
+    write_config: bool = False,
+) -> None:
     width, height, rgb = _read_png_rgb8(source)
-    outputs = build_outputs_from_character_form(cfg, width, height)
-    if cfg.get("character_form"):
-        cfg["outputs"] = outputs
-        config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(f"[info] character_form expanded to {len(outputs)} outputs and persisted to config")
+    outputs = resolve_outputs(
+        cfg,
+        width,
+        height,
+        config_path,
+        rebuild_outputs=rebuild_outputs,
+        write_config=write_config,
+    )
 
     print("[warn] numpy/pillow not available; using fallback crop mode (RGB PNG only, no bg-removal/refine)")
     for item in outputs:
@@ -158,6 +168,32 @@ def run_fallback_without_numpy_pillow(config_path: Path, cfg: Dict[str, object],
         print(f"[item] {item['name']}: mode=fallback-crop rect={rect} output={out_path}")
 
 
+
+
+def resolve_outputs(
+    cfg: Dict[str, object],
+    width: int,
+    height: int,
+    config_path: Path,
+    rebuild_outputs: bool = False,
+    write_config: bool = False,
+) -> list[Dict[str, object]]:
+    existing = list(cfg.get("outputs", []))
+    has_form = bool(cfg.get("character_form"))
+
+    if has_form and (rebuild_outputs or not existing):
+        outputs = build_outputs_from_character_form(cfg, width, height)
+        if write_config:
+            cfg["outputs"] = outputs
+            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            print(f"[info] outputs rebuilt from character_form and saved ({len(outputs)} items)")
+        else:
+            print(f"[info] outputs rebuilt from character_form in-memory ({len(outputs)} items)")
+        return outputs
+
+    if existing:
+        print(f"[info] using preconfigured outputs from config ({len(existing)} items)")
+    return existing
 def clamp_rect(rect: Rect, width: int, height: int) -> Rect:
     x0, y0, x1, y1 = rect
     return max(0, x0), max(0, y0), min(width, x1), min(height, y1)
@@ -443,7 +479,7 @@ def print_dry_run_without_image(cfg: Dict[str, object]) -> None:
         print(f"[item] {item['name']}: mode=fallback(no-image) rect={tuple(item['bbox'])} output={item['output']}")
 
 
-def run(config_path: Path, dry_run: bool = False) -> None:
+def run(config_path: Path, dry_run: bool = False, rebuild_outputs: bool = False, write_config: bool = False) -> None:
     cfg = json.loads(config_path.read_text(encoding="utf-8"))
     configured_source = Path(cfg["source_image"])
     source = guess_source_from_reference(configured_source)
@@ -465,7 +501,14 @@ def run(config_path: Path, dry_run: bool = False) -> None:
     except ModuleNotFoundError:
         if dry_run:
             print("[warn] numpy/pillow not installed; running fallback export path in dry-run")
-        run_fallback_without_numpy_pillow(config_path, cfg, source, dry_run=dry_run)
+        run_fallback_without_numpy_pillow(
+            config_path,
+            cfg,
+            source,
+            dry_run=dry_run,
+            rebuild_outputs=rebuild_outputs,
+            write_config=write_config,
+        )
         return
 
     image = Image.open(source).convert("RGB")
@@ -476,11 +519,14 @@ def run(config_path: Path, dry_run: bool = False) -> None:
     bg = sample_background_color(rgb, margin=int(alpha_cfg["bg_sample_margin"]))
     bg_tol = float(alpha_cfg["bg_color_tolerance"])
 
-    outputs = build_outputs_from_character_form(cfg, w, h)
-    if cfg.get("character_form"):
-        cfg["outputs"] = outputs
-        config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(f"[info] character_form expanded to {len(outputs)} outputs and persisted to config")
+    outputs = resolve_outputs(
+        cfg,
+        w,
+        h,
+        config_path,
+        rebuild_outputs=rebuild_outputs,
+        write_config=write_config,
+    )
 
     print(f"[info] source={source} size={w}x{h} bg_sample={bg.tolist()}")
 
@@ -527,8 +573,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Extract sprites from a turnaround reference sheet")
     parser.add_argument("--config", default="tools/extract_config.json", help="Path to extraction config JSON")
     parser.add_argument("--dry-run", action="store_true", help="Resolve boxes without writing files")
+    parser.add_argument(
+        "--rebuild-outputs-from-form",
+        action="store_true",
+        help="Rebuild outputs from character_form in-memory (does not modify config unless --write-config is set)",
+    )
+    parser.add_argument(
+        "--write-config",
+        action="store_true",
+        help="When rebuilding outputs, persist rebuilt outputs back to config file",
+    )
     args = parser.parse_args()
-    run(Path(args.config), dry_run=args.dry_run)
+    run(
+        Path(args.config),
+        dry_run=args.dry_run,
+        rebuild_outputs=args.rebuild_outputs_from_form,
+        write_config=args.write_config,
+    )
 
 
 if __name__ == "__main__":

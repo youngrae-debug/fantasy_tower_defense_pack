@@ -57,3 +57,25 @@ python3 tools/extract_sprites.py --dry-run
 ```bash
 python3 tools/extract_sprites.py
 ```
+
+
+## 출력 고정/재생성 규칙 (뒤죽박죽 방지)
+- `outputs`가 비어 있으면 매 실행 시 `character_form`으로 출력 좌표를 계산합니다.
+- `outputs`가 채워져 있으면 해당 값(고정값)을 우선 사용합니다.
+- 강제로 `character_form` 기준으로 다시 계산하려면:
+
+```bash
+python3 tools/extract_sprites.py --rebuild-outputs-from-form
+```
+
+- 재계산 결과를 config에 저장하려면:
+
+```bash
+python3 tools/extract_sprites.py --rebuild-outputs-from-form --write-config
+```
+
+## Animator는 어디에 생성되나?
+- Enemy Animator Controller 파일 경로:
+  `Assets/Rogue2DKit/Animations/Controllers/Enemy.controller`
+- 스프라이트 추출 스크립트는 이미지만 생성하며, Animator 상태에 클립 자동 연결은 하지 않습니다.
+  (Unity Editor에서 Idle/Walk/Attack/Death 클립을 상태에 수동 연결 필요)
