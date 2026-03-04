@@ -18,6 +18,7 @@ python3 tools/extract_sprites.py --dry-run
 
 주요 키:
 - `order`: 분할 순서 (예: `front, side, back`)
+  - 현재 `knight.png` 기준 권장/정상 순서는 **왼쪽→오른쪽 = front, side, back** 입니다.
 - `split_ratios`: X축 분할 비율 2개 (예: `0.3333, 0.6666`)
 - `y_ratio`: 세로 탐색 범위 비율
 - `section_margin_px`: 공통 기본 여백
