@@ -140,6 +140,18 @@ def add_padding(rect: Rect, padding: int, width: int, height: int) -> Rect:
     return clamp_rect((x0 - padding, y0 - padding, x1 + padding, y1 + padding), width, height)
 
 
+
+
+def apply_bbox_adjustments(base_bbox: list[int], adjust: list[int]) -> list[int]:
+    if len(adjust) != 4:
+        raise ValueError("bbox_adjust_px must have 4 integers: [left, top, right, bottom]")
+    return [
+        int(base_bbox[0] + adjust[0]),
+        int(base_bbox[1] + adjust[1]),
+        int(base_bbox[2] + adjust[2]),
+        int(base_bbox[3] + adjust[3]),
+    ]
+
 def component_mask_from_crop(crop: np.ndarray, bg: np.ndarray, expected_rect_in_crop: Rect, min_area: int, fg_tol: float) -> np.ndarray:
     fg_mask = dist_to_bg(crop, bg) > fg_tol
     comps = extract_components(fg_mask, min_area=max(20, min_area // 8))
@@ -172,20 +184,23 @@ def trim_alpha_bbox(alpha: np.ndarray) -> Optional[Rect]:
     return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
-def export_sprite(src_rgb: np.ndarray, rect: Rect, bg: np.ndarray, cfg_alpha: Dict[str, float], padding: int, out_path: Path) -> None:
+def export_sprite(src_rgb: np.ndarray, rect: Rect, bg: np.ndarray, cfg_alpha: Dict[str, float], padding: int, out_path: Path, remove_background: bool = True) -> None:
     h, w, _ = src_rgb.shape
     x0, y0, x1, y1 = add_padding(rect, padding, w, h)
     crop = src_rgb[y0:y1, x0:x1, :].copy()
 
-    expected = (rect[0] - x0, rect[1] - y0, rect[2] - x0, rect[3] - y0)
-    keep_mask = component_mask_from_crop(
-        crop,
-        bg=bg,
-        expected_rect_in_crop=expected,
-        min_area=int(cfg_alpha.get("component_min_area", 80)),
-        fg_tol=float(cfg_alpha.get("target_component_tolerance", cfg_alpha["bg_color_tolerance"])),
-    )
-    alpha = feather_alpha(keep_mask, soft_px=int(cfg_alpha.get("edge_feather_px", 1)))
+    if remove_background:
+        expected = (rect[0] - x0, rect[1] - y0, rect[2] - x0, rect[3] - y0)
+        keep_mask = component_mask_from_crop(
+            crop,
+            bg=bg,
+            expected_rect_in_crop=expected,
+            min_area=int(cfg_alpha.get("component_min_area", 80)),
+            fg_tol=float(cfg_alpha.get("target_component_tolerance", cfg_alpha["bg_color_tolerance"])),
+        )
+        alpha = feather_alpha(keep_mask, soft_px=int(cfg_alpha.get("edge_feather_px", 1)))
+    else:
+        alpha = np.full((crop.shape[0], crop.shape[1]), 255, dtype=np.uint8)
 
     tight = trim_alpha_bbox(alpha)
     if tight is None:
@@ -245,6 +260,8 @@ def build_outputs_from_character_form(cfg: Dict[str, object], width: int, height
     section_margin = int(form.get("section_margin_px", 24))
     padding = int(form.get("padding", cfg.get("default_padding", 12)))
     min_area = int(form.get("min_area", 7000))
+    remove_background = bool(form.get("remove_background", cfg.get("remove_background", True)))
+    pose_overrides = form.get("pose_overrides", {})
 
     sections = [(0, x1), (x1, x2), (x2, width)]
     outputs: list[Dict[str, object]] = []
@@ -252,6 +269,9 @@ def build_outputs_from_character_form(cfg: Dict[str, object], width: int, height
     for idx, pose in enumerate(order):
         sx0, sx1 = sections[idx]
         bbox = [sx0 + section_margin, y0 + section_margin, sx1 - section_margin, y1 - section_margin]
+        override = pose_overrides.get(pose, {}) if isinstance(pose_overrides, dict) else {}
+        bbox_adjust = override.get("bbox_adjust_px", [0, 0, 0, 0])
+        bbox = apply_bbox_adjustments(bbox, bbox_adjust)
         search = [sx0, y0, sx1, y1]
         outputs.append(
             {
@@ -265,6 +285,7 @@ def build_outputs_from_character_form(cfg: Dict[str, object], width: int, height
                 "min_iou_with_bbox": float(form.get("min_iou_with_bbox", 0.25)),
                 "max_center_shift": float(form.get("max_center_shift", 160.0)),
                 "refine_margin": int(form.get("refine_margin", 16)),
+                "remove_background": bool(override.get("remove_background", remove_background)),
             }
         )
 
@@ -343,7 +364,7 @@ def run(config_path: Path, dry_run: bool = False) -> None:
         chosen = refine_bbox_near_rect(rgb, chosen, bg, bg_tol, refine_margin)
         print(f"[item] {name}: mode={mode} rect={chosen} output={out_path}")
         if not dry_run:
-            export_sprite(rgb, chosen, bg, alpha_cfg, padding, out_path)
+            export_sprite(rgb, chosen, bg, alpha_cfg, padding, out_path, remove_background=bool(item.get("remove_background", True)))
 
 
 def main() -> None:

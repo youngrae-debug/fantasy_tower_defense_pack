@@ -20,7 +20,16 @@
     "min_area": 7000,
     "min_iou_with_bbox": 0.25,
     "max_center_shift": 160.0,
-    "refine_margin": 16
+    "refine_margin": 16,
+    "remove_background": false,
+    "pose_overrides": {
+      "front": {
+        "bbox_adjust_px": [-20, 0, 20, 0]
+      },
+      "side": {
+        "bbox_adjust_px": [28, 0, -28, 0]
+      }
+    }
   },
   "outputs": []
 }
