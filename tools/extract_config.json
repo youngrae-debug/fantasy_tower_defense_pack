@@ -35,9 +35,9 @@
     "pose_overrides": {
       "front": {
         "bbox_adjust_px": [
-          -20,
+          -55,
           0,
-          20,
+          55,
           0
         ],
         "use_detected_bbox": false,
@@ -45,9 +45,19 @@
       },
       "side": {
         "bbox_adjust_px": [
-          28,
+          46,
           0,
-          -28,
+          -46,
+          0
+        ],
+        "use_detected_bbox": false,
+        "use_refine": false
+      },
+      "back": {
+        "bbox_adjust_px": [
+          -55,
+          0,
+          55,
           0
         ],
         "use_detected_bbox": false,

@@ -24,8 +24,9 @@ python3 tools/extract_sprites.py --dry-run
 - `pose_overrides.<pose>.bbox_adjust_px`: 포즈별 bbox 미세 조정 `[left, top, right, bottom]`
 - `use_detected_bbox`: 자동 박스 탐지 사용 여부 (`false`면 bbox 고정)
 - `use_refine`: 자동 refine 사용 여부 (`false`면 bbox 그대로 사용)
-  - `front`를 조금 더 크게: `[-20, 0, 20, 0]`
-  - `side` 양쪽 줄이기: `[28, 0, -28, 0]`
+  - `front`를 더 넓게: `[-55, 0, 55, 0]`
+  - `back`도 넓게: `[-55, 0, 55, 0]`
+  - `side`를 조금 더 타이트하게: `[46, 0, -46, 0]`
 
 실행 시 `character_form`이 `outputs` 3개로 확장되어 config에 저장됩니다.
 
