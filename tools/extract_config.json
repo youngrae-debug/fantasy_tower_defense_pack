@@ -1,6 +1,6 @@
 {
   "package_name": "Rogue2DKit",
-  "source_image": "Assets/Rogue2DKit/Art/Reference/ref_rogue_turnaround_v01.png",
+  "source_image": "Assets/Rogue2DKit/Art/Reference/knight.png",
   "default_padding": 12,
   "alpha": {
     "bg_sample_margin": 24,
