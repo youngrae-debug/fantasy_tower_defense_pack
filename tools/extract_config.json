@@ -1,0 +1,242 @@
+{
+  "package_name": "Rogue2DKit",
+  "source_image": "Assets/Rogue2DKit/Art/Reference/ref_rogue_turnaround_v01.png",
+  "default_padding": 12,
+  "alpha": {
+    "bg_sample_margin": 24,
+    "bg_color_tolerance": 44,
+    "edge_expand_tolerance": 10,
+    "soft_outer_tolerance": 12,
+    "soft_inner_tolerance": 52
+  },
+  "outputs": [
+    {
+      "name": "rogue_front",
+      "kind": "character",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Turnaround/rogue_front.png",
+      "bbox": [
+        40,
+        185,
+        595,
+        860
+      ],
+      "search_rect": [
+        0,
+        120,
+        650,
+        910
+      ],
+      "padding": 14,
+      "min_area": 9000
+    },
+    {
+      "name": "rogue_side",
+      "kind": "character",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Turnaround/rogue_side.png",
+      "bbox": [
+        565,
+        195,
+        890,
+        860
+      ],
+      "search_rect": [
+        500,
+        120,
+        940,
+        910
+      ],
+      "padding": 14,
+      "min_area": 7000
+    },
+    {
+      "name": "rogue_back",
+      "kind": "character",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Turnaround/rogue_back.png",
+      "bbox": [
+        860,
+        185,
+        1240,
+        860
+      ],
+      "search_rect": [
+        810,
+        120,
+        1295,
+        910
+      ],
+      "padding": 14,
+      "min_area": 9000
+    },
+    {
+      "name": "icon_knife",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_knife.png",
+      "bbox": [
+        1220,
+        30,
+        1328,
+        255
+      ],
+      "search_rect": [
+        1180,
+        0,
+        1375,
+        290
+      ],
+      "padding": 10,
+      "min_area": 700
+    },
+    {
+      "name": "icon_anchor",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_anchor.png",
+      "bbox": [
+        1310,
+        45,
+        1418,
+        248
+      ],
+      "search_rect": [
+        1265,
+        0,
+        1470,
+        300
+      ],
+      "padding": 10,
+      "min_area": 700
+    },
+    {
+      "name": "icon_rope",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_rope.png",
+      "bbox": [
+        1390,
+        45,
+        1515,
+        242
+      ],
+      "search_rect": [
+        1360,
+        0,
+        1536,
+        300
+      ],
+      "padding": 10,
+      "min_area": 700
+    },
+    {
+      "name": "icon_pouch",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_pouch.png",
+      "bbox": [
+        1260,
+        235,
+        1418,
+        395
+      ],
+      "search_rect": [
+        1210,
+        185,
+        1475,
+        445
+      ],
+      "padding": 10,
+      "min_area": 1200
+    },
+    {
+      "name": "icon_potion",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_potion.png",
+      "bbox": [
+        1405,
+        220,
+        1510,
+        395
+      ],
+      "search_rect": [
+        1360,
+        175,
+        1536,
+        450
+      ],
+      "padding": 10,
+      "min_area": 800
+    },
+    {
+      "name": "icon_bandage",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_bandage.png",
+      "bbox": [
+        1310,
+        385,
+        1445,
+        495
+      ],
+      "search_rect": [
+        1260,
+        340,
+        1495,
+        545
+      ],
+      "padding": 10,
+      "min_area": 700
+    },
+    {
+      "name": "icon_small_knife",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_small_knife.png",
+      "bbox": [
+        1415,
+        380,
+        1505,
+        595
+      ],
+      "search_rect": [
+        1370,
+        340,
+        1536,
+        645
+      ],
+      "padding": 10,
+      "min_area": 700
+    },
+    {
+      "name": "icon_shuriken",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_shuriken.png",
+      "bbox": [
+        1330,
+        485,
+        1428,
+        640
+      ],
+      "search_rect": [
+        1280,
+        450,
+        1475,
+        700
+      ],
+      "padding": 10,
+      "min_area": 700
+    },
+    {
+      "name": "icon_banner",
+      "kind": "item",
+      "output": "Assets/Rogue2DKit/Art/Sprites/Items/Icons/icon_banner.png",
+      "bbox": [
+        1330,
+        595,
+        1518,
+        890
+      ],
+      "search_rect": [
+        1260,
+        545,
+        1536,
+        970
+      ],
+      "padding": 10,
+      "min_area": 1800
+    }
+  ]
+}
