@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 from collections import deque
+import struct
+import zlib
 from pathlib import Path
 from statistics import median
 from typing import Dict, Iterable, Optional, Tuple
@@ -18,6 +20,142 @@ from typing import Dict, Iterable, Optional, Tuple
 Rect = Tuple[int, int, int, int]
 np = None
 Image = None
+
+
+def _read_png_rgb8(path: Path) -> tuple[int, int, bytes]:
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"Only PNG is supported in fallback mode: {path}")
+
+    i = 8
+    width = height = None
+    bit_depth = color_type = interlace = None
+    idat_parts: list[bytes] = []
+
+    while i < len(data):
+        length = struct.unpack(">I", data[i : i + 4])[0]
+        ctype = data[i + 4 : i + 8]
+        chunk = data[i + 8 : i + 8 + length]
+        i += length + 12
+
+        if ctype == b"IHDR":
+            width, height, bit_depth, color_type, _cm, _fm, interlace = struct.unpack(">IIBBBBB", chunk)
+        elif ctype == b"IDAT":
+            idat_parts.append(chunk)
+        elif ctype == b"IEND":
+            break
+
+    if width is None or height is None:
+        raise ValueError(f"Invalid PNG (no IHDR): {path}")
+    if bit_depth != 8 or color_type != 2 or interlace != 0:
+        raise ValueError(
+            "Fallback mode supports only non-interlaced PNG RGB8 (color_type=2, bit_depth=8)"
+        )
+
+    raw = zlib.decompress(b"".join(idat_parts))
+    bpp = 3
+    stride = width * bpp
+    expected = (stride + 1) * height
+    if len(raw) != expected:
+        raise ValueError("Unexpected decompressed PNG size")
+
+    out = bytearray(height * stride)
+    prev = bytes(stride)
+    src_i = 0
+    dst_i = 0
+
+    for _ in range(height):
+        f = raw[src_i]
+        src_i += 1
+        cur = bytearray(raw[src_i : src_i + stride])
+        src_i += stride
+
+        if f == 1:
+            for x in range(stride):
+                left = cur[x - bpp] if x >= bpp else 0
+                cur[x] = (cur[x] + left) & 0xFF
+        elif f == 2:
+            for x in range(stride):
+                cur[x] = (cur[x] + prev[x]) & 0xFF
+        elif f == 3:
+            for x in range(stride):
+                left = cur[x - bpp] if x >= bpp else 0
+                cur[x] = (cur[x] + ((left + prev[x]) // 2)) & 0xFF
+        elif f == 4:
+            for x in range(stride):
+                a = cur[x - bpp] if x >= bpp else 0
+                b = prev[x]
+                c = prev[x - bpp] if x >= bpp else 0
+                p = a + b - c
+                pa = abs(p - a)
+                pb = abs(p - b)
+                pc = abs(p - c)
+                pr = a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+                cur[x] = (cur[x] + pr) & 0xFF
+        elif f != 0:
+            raise ValueError(f"Unsupported PNG filter type: {f}")
+
+        out[dst_i : dst_i + stride] = cur
+        prev = bytes(cur)
+        dst_i += stride
+
+    return width, height, bytes(out)
+
+
+def _write_png_rgb8(path: Path, width: int, height: int, rgb: bytes) -> None:
+    stride = width * 3
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)
+        start = y * stride
+        raw.extend(rgb[start : start + stride])
+
+    def chunk(name: bytes, payload: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(payload))
+            + name
+            + payload
+            + struct.pack(">I", zlib.crc32(name + payload) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    idat = zlib.compress(bytes(raw), level=9)
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png)
+
+
+def _crop_rgb(rgb: bytes, src_w: int, rect: Rect) -> tuple[int, int, bytes]:
+    x0, y0, x1, y1 = rect
+    out_w, out_h = x1 - x0, y1 - y0
+    src_stride = src_w * 3
+    out = bytearray(out_w * out_h * 3)
+    o = 0
+    for y in range(y0, y1):
+        start = y * src_stride + x0 * 3
+        end = start + out_w * 3
+        row = rgb[start:end]
+        out[o : o + len(row)] = row
+        o += len(row)
+    return out_w, out_h, bytes(out)
+
+
+def run_fallback_without_numpy_pillow(config_path: Path, cfg: Dict[str, object], source: Path, dry_run: bool = False) -> None:
+    width, height, rgb = _read_png_rgb8(source)
+    outputs = build_outputs_from_character_form(cfg, width, height)
+    if cfg.get("character_form"):
+        cfg["outputs"] = outputs
+        config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"[info] character_form expanded to {len(outputs)} outputs and persisted to config")
+
+    print("[warn] numpy/pillow not available; using fallback crop mode (RGB PNG only, no bg-removal/refine)")
+    for item in outputs:
+        rect = clamp_rect(parse_rect(item["bbox"]), width, height)
+        out_path = Path(item["output"])
+        out_w, out_h, cropped = _crop_rgb(rgb, width, rect)
+        if not dry_run:
+            _write_png_rgb8(out_path, out_w, out_h, cropped)
+        print(f"[item] {item['name']}: mode=fallback-crop rect={rect} output={out_path}")
 
 
 def clamp_rect(rect: Rect, width: int, height: int) -> Rect:
@@ -321,8 +459,14 @@ def run(config_path: Path, dry_run: bool = False) -> None:
         print(f"[info] using detected reference image instead: {source}")
 
     global np, Image
-    import numpy as np  # type: ignore[no-redef]
-    from PIL import Image  # type: ignore[no-redef]
+    try:
+        import numpy as np  # type: ignore[no-redef]
+        from PIL import Image  # type: ignore[no-redef]
+    except ModuleNotFoundError:
+        if dry_run:
+            print("[warn] numpy/pillow not installed; running fallback export path in dry-run")
+        run_fallback_without_numpy_pillow(config_path, cfg, source, dry_run=dry_run)
+        return
 
     image = Image.open(source).convert("RGB")
     rgb = np.array(image)
