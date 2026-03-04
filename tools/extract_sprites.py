@@ -54,11 +54,10 @@ def dist_to_bg(rgb: np.ndarray, bg: np.ndarray) -> np.ndarray:
     return np.sqrt(np.sum(delta * delta, axis=2))
 
 
-def largest_component_bbox(mask: np.ndarray, min_area: int) -> Optional[Rect]:
+def extract_components(mask: np.ndarray, min_area: int) -> list[tuple[Rect, int]]:
     h, w = mask.shape
     visited = np.zeros_like(mask, dtype=bool)
-    best_area = 0
-    best_bbox = None
+    components: list[tuple[Rect, int]] = []
 
     for y in range(h):
         for x in range(w):
@@ -83,11 +82,34 @@ def largest_component_bbox(mask: np.ndarray, min_area: int) -> Optional[Rect]:
                         visited[ny, nx] = True
                         q.append((nx, ny))
 
-            if area >= min_area and area > best_area:
-                best_area = area
-                best_bbox = (min_x, min_y, max_x + 1, max_y + 1)
+            if area >= min_area:
+                components.append(((min_x, min_y, max_x + 1, max_y + 1), area))
 
-    return best_bbox
+    return components
+
+
+def choose_component(
+    components: list[tuple[Rect, int]],
+    expected_rect: Optional[Rect],
+    default_to_largest: bool = True,
+) -> Optional[Rect]:
+    if not components:
+        return None
+
+    if expected_rect is None:
+        return max(components, key=lambda c: c[1])[0] if default_to_largest else None
+
+    best_rect = None
+    best_score = -1.0
+    for rect, area in components:
+        iou = rect_iou(rect, expected_rect)
+        center_dist = rect_center_distance(rect, expected_rect)
+        score = (iou * 10000.0) - (center_dist * 5.0) + float(area)
+        if score > best_score:
+            best_score = score
+            best_rect = rect
+
+    return best_rect
 
 
 def detect_bbox_in_search(
@@ -96,16 +118,22 @@ def detect_bbox_in_search(
     bg: np.ndarray,
     bg_tol: float,
     min_area: int,
+    expected_rect: Optional[Rect] = None,
 ) -> Optional[Rect]:
     x0, y0, x1, y1 = search_rect
     region = rgb[y0:y1, x0:x1, :]
     if region.size == 0:
         return None
     fg_mask = dist_to_bg(region, bg) > bg_tol
-    comp = largest_component_bbox(fg_mask, min_area=min_area)
-    if comp is None:
+    components = extract_components(fg_mask, min_area=min_area)
+    expected_local = None
+    if expected_rect is not None:
+        ex0, ey0, ex1, ey1 = expected_rect
+        expected_local = (ex0 - x0, ey0 - y0, ex1 - x0, ey1 - y0)
+    chosen = choose_component(components, expected_local)
+    if chosen is None:
         return None
-    rx0, ry0, rx1, ry1 = comp
+    rx0, ry0, rx1, ry1 = chosen
     return x0 + rx0, y0 + ry0, x0 + rx1, y0 + ry1
 
 
@@ -139,6 +167,30 @@ def edge_connected_bg_mask(rgb: np.ndarray, bg: np.ndarray, tol: float) -> np.nd
                 q.append((nx, ny))
 
     return visited
+
+
+def build_alpha_matte(
+    crop_rgb: np.ndarray,
+    bg: np.ndarray,
+    edge_tol: float,
+    soft_outer_tol: float,
+    soft_inner_tol: float,
+) -> np.ndarray:
+    """Build alpha matte by combining edge-connected background + soft color-distance ramp."""
+    d = dist_to_bg(crop_rgb, bg)
+    edge_bg = edge_connected_bg_mask(crop_rgb, bg, tol=edge_tol)
+
+    alpha = np.full(d.shape, 255.0, dtype=np.float32)
+    alpha[edge_bg] = 0.0
+
+    # Soft transition near background color to reduce halos.
+    if soft_inner_tol <= soft_outer_tol:
+        soft_inner_tol = soft_outer_tol + 1.0
+    in_soft_band = (d > soft_outer_tol) & (d < soft_inner_tol)
+    alpha[in_soft_band] = ((d[in_soft_band] - soft_outer_tol) / (soft_inner_tol - soft_outer_tol)) * 255.0
+    alpha[d <= soft_outer_tol] = 0.0
+
+    return np.clip(alpha, 0, 255).astype(np.uint8)
 
 
 def trim_alpha_bbox(alpha: np.ndarray) -> Optional[Rect]:
@@ -186,10 +238,13 @@ def refine_bbox_near_rect(
     sx0, sy0, sx1, sy1 = add_padding(base_rect, padding=refine_margin, width=w, height=h)
     search = rgb[sy0:sy1, sx0:sx1, :]
     fg_mask = dist_to_bg(search, bg) > bg_tol
-    ys, xs = np.where(fg_mask)
-    if len(xs) == 0:
+    components = extract_components(fg_mask, min_area=20)
+    base_local = (base_rect[0] - sx0, base_rect[1] - sy0, base_rect[2] - sx0, base_rect[3] - sy0)
+    chosen = choose_component(components, expected_rect=base_local)
+    if chosen is None:
         return base_rect
-    tight = (sx0 + int(xs.min()), sy0 + int(ys.min()), sx0 + int(xs.max()) + 1, sy0 + int(ys.max()) + 1)
+    tx0, ty0, tx1, ty1 = chosen
+    tight = (sx0 + tx0, sy0 + ty0, sx0 + tx1, sy0 + ty1)
     return clamp_rect(tight, w, h)
 
 
@@ -205,8 +260,13 @@ def export_sprite(
     x0, y0, x1, y1 = add_padding(rect, padding, w, h)
     crop = src_rgb[y0:y1, x0:x1, :].copy()
 
-    bg_mask = edge_connected_bg_mask(crop, bg, tol=cfg_alpha["edge_expand_tolerance"])
-    alpha = np.where(bg_mask, 0, 255).astype(np.uint8)
+    alpha = build_alpha_matte(
+        crop,
+        bg=bg,
+        edge_tol=float(cfg_alpha["edge_expand_tolerance"]),
+        soft_outer_tol=float(cfg_alpha.get("soft_outer_tolerance", cfg_alpha["edge_expand_tolerance"])),
+        soft_inner_tol=float(cfg_alpha.get("soft_inner_tolerance", cfg_alpha["bg_color_tolerance"])),
+    )
 
     tight = trim_alpha_bbox(alpha)
     if tight is None:
@@ -288,7 +348,7 @@ def run(config_path: Path, dry_run: bool = False) -> None:
         refine_margin = int(item.get("refine_margin", 24))
         out_path = Path(item["output"])
 
-        detected = detect_bbox_in_search(rgb, search_rect, bg, bg_tol=bg_tol, min_area=min_area)
+        detected = detect_bbox_in_search(rgb, search_rect, bg, bg_tol=bg_tol, min_area=min_area, expected_rect=bbox)
         if detected is not None:
             iou = rect_iou(detected, bbox)
             center_shift = rect_center_distance(detected, bbox)
