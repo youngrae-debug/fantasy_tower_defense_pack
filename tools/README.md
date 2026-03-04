@@ -44,3 +44,8 @@ python3 tools/extract_sprites.py --config tools/extract_config.json
 5. padding(기본 12px, 항목별 override 가능)을 적용합니다.
 
 > 스크립트는 deterministic 하게 동작하며, 같은 입력/설정이면 같은 결과를 덮어써서 재생성합니다.
+
+## 소스 이미지가 없을 때
+- `--dry-run`은 소스 이미지가 없어도 설정(`bbox`) 기준으로 검증 로그를 출력합니다.
+- 일반 실행(파일 저장)은 소스 이미지가 필요합니다.
+- 설정한 `source_image`가 없으면, 같은 `Art/Reference` 폴더에서 첫 번째 이미지 파일(`.png/.jpg/.jpeg/.webp`)을 자동으로 찾아 사용합니다.

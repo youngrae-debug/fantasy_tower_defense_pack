@@ -15,12 +15,13 @@ import json
 from collections import deque
 from pathlib import Path
 from statistics import median
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
-import numpy as np
-from PIL import Image
 
 Rect = Tuple[int, int, int, int]
+np = None
+Image = None
+
 
 
 def clamp_rect(rect: Rect, width: int, height: int) -> Rect:
@@ -180,12 +181,49 @@ def export_sprite(
     Image.fromarray(rgba, mode="RGBA").save(out_path)
 
 
+def guess_source_from_reference(source: Path) -> Optional[Path]:
+    if source.exists():
+        return source
+    ref_dir = source.parent
+    if not ref_dir.exists():
+        return None
+    candidates = sorted(
+        [p for p in ref_dir.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}]
+    )
+    return candidates[0] if candidates else None
+
+
+def print_dry_run_without_image(cfg: Dict[str, object]) -> None:
+    print("[warn] source image not found; running config-only dry-run")
+    for item in cfg["outputs"]:  # type: ignore[index]
+        name = item["name"]
+        bbox = parse_rect(item["bbox"])
+        out_path = item["output"]
+        print(f"[item] {name}: mode=fallback(no-image) rect={bbox} output={out_path}")
+
+
 def run(config_path: Path, dry_run: bool = False) -> None:
     cfg = json.loads(config_path.read_text(encoding="utf-8"))
 
-    source = Path(cfg["source_image"])
-    if not source.exists():
-        raise FileNotFoundError(f"Source image not found: {source}")
+    configured_source = Path(cfg["source_image"])
+    source = guess_source_from_reference(configured_source)
+
+    if source is None:
+        if dry_run:
+            print_dry_run_without_image(cfg)
+            return
+        raise FileNotFoundError(
+            f"Source image not found: {configured_source}. "
+            f"Put a reference image in {configured_source.parent} or update source_image in config."
+        )
+
+    if source != configured_source:
+        print(f"[warn] configured source missing: {configured_source}")
+        print(f"[info] using detected reference image instead: {source}")
+
+    global np, Image
+    import numpy as np  # type: ignore[no-redef]
+    from PIL import Image  # type: ignore[no-redef]
 
     image = Image.open(source).convert("RGB")
     rgb = np.array(image)
