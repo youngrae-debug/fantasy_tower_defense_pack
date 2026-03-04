@@ -41,3 +41,41 @@ python3 tools/extract_sprites.py --dry-run
 ## 소스 이미지
 - `source_image`가 없으면 같은 `Art/Reference` 폴더의 첫 이미지를 자동 탐색합니다.
 - 이미지가 전혀 없으면 `--dry-run`만 동작합니다.
+
+## 의존성 없이 실행 (현재 환경 대응)
+`numpy`/`Pillow`가 없는 환경에서도, PNG 기준으로 `character_form`의 bbox를 그대로 잘라
+`Turnaround` 이미지를 생성하도록 fallback 모드가 동작합니다.
+
+- 이 모드에서는 배경 제거/자동 bbox 탐지/리파인 기능은 사용하지 않고, 설정된 bbox를 그대로 crop합니다.
+- 권장: 로컬 개발 환경에서는 기존처럼 `numpy`/`Pillow` 설치 후 실행해 더 정확한 결과를 사용하세요.
+
+## 저장소 반영 정책 (중요)
+- 추출된 `Turnaround/*.png` 결과물은 바이너리 파일이라 PR diff에서 "binary file not supported"가 발생할 수 있어,
+  기본적으로 **저장소에 커밋하지 않습니다**.
+- 팀원이 동일한 결과를 얻으려면 아래 명령을 로컬에서 실행해 생성하세요.
+
+```bash
+python3 tools/extract_sprites.py
+```
+
+
+## 출력 고정/재생성 규칙 (뒤죽박죽 방지)
+- `outputs`가 비어 있으면 매 실행 시 `character_form`으로 출력 좌표를 계산합니다.
+- `outputs`가 채워져 있으면 해당 값(고정값)을 우선 사용합니다.
+- 강제로 `character_form` 기준으로 다시 계산하려면:
+
+```bash
+python3 tools/extract_sprites.py --rebuild-outputs-from-form
+```
+
+- 재계산 결과를 config에 저장하려면:
+
+```bash
+python3 tools/extract_sprites.py --rebuild-outputs-from-form --write-config
+```
+
+## Animator는 어디에 생성되나?
+- Enemy Animator Controller 파일 경로:
+  `Assets/Rogue2DKit/Animations/Controllers/Enemy.controller`
+- 스프라이트 추출 스크립트는 이미지만 생성하며, Animator 상태에 클립 자동 연결은 하지 않습니다.
+  (Unity Editor에서 Idle/Walk/Attack/Death 클립을 상태에 수동 연결 필요)
