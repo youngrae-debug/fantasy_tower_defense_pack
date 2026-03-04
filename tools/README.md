@@ -77,5 +77,22 @@ python3 tools/extract_sprites.py --rebuild-outputs-from-form --write-config
 ## Animator는 어디에 생성되나?
 - Enemy Animator Controller 파일 경로:
   `Assets/Rogue2DKit/Animations/Controllers/Enemy.controller`
-- 스프라이트 추출 스크립트는 이미지만 생성하며, Animator 상태에 클립 자동 연결은 하지 않습니다.
-  (Unity Editor에서 Idle/Walk/Attack/Death 클립을 상태에 수동 연결 필요)
+- Animation은 "이미지 파일 자체"가 아니라, **Sprite를 시간축으로 재생하는 Animation Clip + Animator 상태머신** 조합입니다.
+- 추출 스크립트는 이미지만 생성합니다. 클립/상태 연결은 Unity 메뉴에서 자동 생성하세요:
+
+```text
+Rogue2DKit/Animations/Rebuild Enemy Animator From Turnaround
+```
+
+- 위 메뉴는 `Turnaround` 스프라이트를 읽어 `Enemy_Idle/Walk/Attack/Death.anim`을 만들고,
+  `Enemy.controller`의 Idle/Walk/Attack/Death 상태에 자동 연결합니다.
+- 추가로 스킬용 placeholder 클립 `Enemy_Skill_Slash`, `Enemy_Skill_Cast`도 자동 생성하고
+  Animator에 `SkillSlash`, `SkillCast` 트리거 + 상태/전이를 자동으로 추가합니다.
+
+## front/back/side 3장만으로 가능한 범위
+- 현재 `Turnaround` 3포즈(front/back/side)만 있으면, 툴이 **기본 루프용 placeholder 애니메이션**(Idle/Walk/Attack/Death)을 만들 수는 있습니다.
+- 하지만 이건 "움직여 보이게" 하는 최소 구성입니다.
+- **실제 공격 스킬 모션(베기, 찌르기, 캐스팅, 피격 반동 등)** 을 자연스럽게 표현하려면
+  스킬별 연속 프레임 스프라이트(또는 본/리깅 애니메이션)가 추가로 필요합니다.
+- 권장: 자동 생성된 `Enemy_Skill_Slash`, `Enemy_Skill_Cast`는 임시 클립으로 사용하고,
+  실제 게임용 스킬별 고유 프레임 클립으로 교체/확장하세요.
