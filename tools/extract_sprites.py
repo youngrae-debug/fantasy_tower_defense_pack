@@ -261,6 +261,8 @@ def build_outputs_from_character_form(cfg: Dict[str, object], width: int, height
     padding = int(form.get("padding", cfg.get("default_padding", 12)))
     min_area = int(form.get("min_area", 7000))
     remove_background = bool(form.get("remove_background", cfg.get("remove_background", True)))
+    use_detected_bbox = bool(form.get("use_detected_bbox", True))
+    use_refine = bool(form.get("use_refine", True))
     pose_overrides = form.get("pose_overrides", {})
 
     sections = [(0, x1), (x1, x2), (x2, width)]
@@ -286,6 +288,8 @@ def build_outputs_from_character_form(cfg: Dict[str, object], width: int, height
                 "max_center_shift": float(form.get("max_center_shift", 160.0)),
                 "refine_margin": int(form.get("refine_margin", 16)),
                 "remove_background": bool(override.get("remove_background", remove_background)),
+                "use_detected_bbox": bool(override.get("use_detected_bbox", use_detected_bbox)),
+                "use_refine": bool(override.get("use_refine", use_refine)),
             }
         )
 
@@ -347,21 +351,29 @@ def run(config_path: Path, dry_run: bool = False) -> None:
         refine_margin = int(item.get("refine_margin", 24))
         out_path = Path(item["output"])
 
-        detected = detect_bbox_in_search(rgb, search_rect, bg, bg_tol, min_area, expected_rect=bbox)
-        if detected is not None:
-            iou = rect_iou(detected, bbox)
-            center_shift = rect_center_distance(detected, bbox)
-            if iou < min_iou or center_shift > max_center_shift:
-                chosen = bbox
-                mode = "fallback(validated)"
+        use_detected_bbox = bool(item.get("use_detected_bbox", True))
+        use_refine = bool(item.get("use_refine", True))
+
+        if use_detected_bbox:
+            detected = detect_bbox_in_search(rgb, search_rect, bg, bg_tol, min_area, expected_rect=bbox)
+            if detected is not None:
+                iou = rect_iou(detected, bbox)
+                center_shift = rect_center_distance(detected, bbox)
+                if iou < min_iou or center_shift > max_center_shift:
+                    chosen = bbox
+                    mode = "fallback(validated)"
+                else:
+                    chosen = detected
+                    mode = f"auto(iou={iou:.3f},shift={center_shift:.1f})"
             else:
-                chosen = detected
-                mode = f"auto(iou={iou:.3f},shift={center_shift:.1f})"
+                chosen = bbox
+                mode = "fallback"
         else:
             chosen = bbox
-            mode = "fallback"
+            mode = "manual(bbox)"
 
-        chosen = refine_bbox_near_rect(rgb, chosen, bg, bg_tol, refine_margin)
+        if use_refine:
+            chosen = refine_bbox_near_rect(rgb, chosen, bg, bg_tol, refine_margin)
         print(f"[item] {name}: mode={mode} rect={chosen} output={out_path}")
         if not dry_run:
             export_sprite(rgb, chosen, bg, alpha_cfg, padding, out_path, remove_background=bool(item.get("remove_background", True)))

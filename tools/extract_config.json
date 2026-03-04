@@ -12,9 +12,19 @@
   "character_form": {
     "package_name": "Rogue2DKit",
     "character_name": "Rogue",
-    "order": ["front", "side", "back"],
-    "split_ratios": [0.3333, 0.6666],
-    "y_ratio": [0.08, 0.95],
+    "order": [
+      "front",
+      "side",
+      "back"
+    ],
+    "split_ratios": [
+      0.3333,
+      0.6666
+    ],
+    "y_ratio": [
+      0.08,
+      0.95
+    ],
     "section_margin_px": 24,
     "padding": 14,
     "min_area": 7000,
@@ -24,12 +34,28 @@
     "remove_background": false,
     "pose_overrides": {
       "front": {
-        "bbox_adjust_px": [-20, 0, 20, 0]
+        "bbox_adjust_px": [
+          -20,
+          0,
+          20,
+          0
+        ],
+        "use_detected_bbox": false,
+        "use_refine": false
       },
       "side": {
-        "bbox_adjust_px": [28, 0, -28, 0]
+        "bbox_adjust_px": [
+          28,
+          0,
+          -28,
+          0
+        ],
+        "use_detected_bbox": false,
+        "use_refine": false
       }
-    }
+    },
+    "use_detected_bbox": false,
+    "use_refine": false
   },
   "outputs": []
 }

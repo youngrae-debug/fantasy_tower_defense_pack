@@ -22,10 +22,16 @@ python3 tools/extract_sprites.py --dry-run
 - `y_ratio`: 세로 탐색 범위 비율
 - `section_margin_px`: 공통 기본 여백
 - `pose_overrides.<pose>.bbox_adjust_px`: 포즈별 bbox 미세 조정 `[left, top, right, bottom]`
+- `use_detected_bbox`: 자동 박스 탐지 사용 여부 (`false`면 bbox 고정)
+- `use_refine`: 자동 refine 사용 여부 (`false`면 bbox 그대로 사용)
   - `front`를 조금 더 크게: `[-20, 0, 20, 0]`
   - `side` 양쪽 줄이기: `[28, 0, -28, 0]`
 
 실행 시 `character_form`이 `outputs` 3개로 확장되어 config에 저장됩니다.
+
+## 중요한 포인트 (지금 문제 원인)
+- `pose_overrides` 값이 반영되어도, 자동탐지/자동refine가 켜져 있으면 박스가 다시 바뀔 수 있습니다.
+- 그래서 수동으로 영역을 정확히 줄이고 싶다면 `use_detected_bbox: false`, `use_refine: false`로 고정하세요.
 
 ## 배경 제거 옵션
 - `character_form.remove_background: false` 면 배경 제거 없이 그대로 저장
