@@ -1,0 +1,61 @@
+{
+  "package_name": "Rogue2DKit",
+  "source_image": "Assets/Rogue2DKit/Art/Reference/ref_rogue_turnaround_v01.png",
+  "default_padding": 12,
+  "alpha": {
+    "bg_sample_margin": 24,
+    "bg_color_tolerance": 44,
+    "target_component_tolerance": 34,
+    "component_min_area": 80,
+    "edge_feather_px": 1
+  },
+  "character_form": {
+    "package_name": "Rogue2DKit",
+    "character_name": "Rogue",
+    "order": [
+      "front",
+      "side",
+      "back"
+    ],
+    "split_ratios": [
+      0.3333,
+      0.6666
+    ],
+    "y_ratio": [
+      0.08,
+      0.95
+    ],
+    "section_margin_px": 24,
+    "padding": 14,
+    "min_area": 7000,
+    "min_iou_with_bbox": 0.25,
+    "max_center_shift": 160.0,
+    "refine_margin": 16,
+    "remove_background": false,
+    "pose_overrides": {
+      "front": {
+        "bbox_adjust_px": [
+          -20,
+          0,
+          20,
+          0
+        ],
+        "use_detected_bbox": false,
+        "use_refine": false
+      },
+      "side": {
+        "bbox_adjust_px": [
+          28,
+          0,
+          -28,
+          0
+        ],
+        "use_detected_bbox": false,
+        "use_refine": false
+      }
+    },
+    "use_detected_bbox": false,
+    "use_refine": false
+  },
+  "outputs": []
+}
