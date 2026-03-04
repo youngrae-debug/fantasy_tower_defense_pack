@@ -1,56 +1,42 @@
 # Sprite extraction tool
 
-`extract_sprites.py`는 레퍼런스 시트에서 캐릭터 턴어라운드/아이콘을 잘라 PNG로 내보냅니다.
-
-## 파일
-- `tools/extract_sprites.py`: 추출 스크립트
-- `tools/extract_config.json`: 초기 바운딩 박스 + 출력 경로
-
-## 요구 사항
-- Python 3.10+
-- Pillow
-- numpy
-
-설치 예시:
-
-```bash
-python3 -m pip install pillow numpy
-```
+`extract_sprites.py`는 레퍼런스 시트를 캐릭터 `front/side/back` PNG로 분리합니다.
+(아이템은 별도 폼을 나중에 추가 가능)
 
 ## 실행
-기본 설정 파일 사용:
-
 ```bash
 python3 tools/extract_sprites.py
 ```
 
-박스 검증만(파일 저장 안 함):
-
+검증만:
 ```bash
 python3 tools/extract_sprites.py --dry-run
 ```
 
-## 핵심 동작
-1. 이미지 외곽 샘플로 배경색을 추정합니다.
-2. 각 스프라이트마다 `search_rect`에서 자동 박스를 찾되, `bbox`와 유사도 검증(IoU/중심거리)을 통과한 경우만 채택합니다.
-3. 최종 박스 주변에서 다시 정밀 보정(refine)을 수행합니다.
-4. **크롭 내부에서 목표 컴포넌트(연결 픽셀)만 선택**하고, 나머지(옆 캐릭터/배경)는 alpha 0 처리합니다.
-5. 선택 컴포넌트 alpha에 feather를 적용해 가장자리를 부드럽게 정리합니다.
+## character_form 방식 (권장)
+`tools/extract_config.json`의 `character_form`을 사용하면,
+3분할 시트(좌→우)에서 자동으로 `front`, `side`, `back` 출력 항목을 생성합니다.
 
-> 즉, `rogue_side.png`는 사이드 캐릭터 1개만 남고 좌우 캐릭터가 섞이지 않도록 설계되어 있습니다.
+주요 키:
+- `character_name`: 출력 파일명/폴더에 사용
+- `order`: 분할 순서 (예: `["front", "side", "back"]`)
+- `split_ratios`: X축 분할 비율 2개 (기본 1/3, 2/3)
+- `y_ratio`: 세로 탐색 비율
+- `section_margin_px`: 각 구간에서 가장자리 여백
+- `min_iou_with_bbox`, `max_center_shift`, `refine_margin`: 검출 안정화
 
-## 소스 이미지가 없을 때
-- `--dry-run`은 소스 이미지가 없어도 설정(`bbox`) 기준으로 검증 로그를 출력합니다.
-- 일반 실행(파일 저장)은 소스 이미지가 필요합니다.
-- 설정한 `source_image`가 없으면, 같은 `Art/Reference` 폴더에서 첫 번째 이미지 파일(`.png/.jpg/.jpeg/.webp`)을 자동으로 찾아 사용합니다.
+실행 시 `character_form`이 `outputs` 3개로 확장되어 config에 저장됩니다.
 
-## 배경 제거(누끼) 파라미터
-- `alpha.bg_color_tolerance`: 배경색과 구분할 기준 거리
-- `alpha.target_component_tolerance`: 목표 컴포넌트 추출 시 전경 판정 기준
-- `alpha.component_min_area`: 목표 컴포넌트 최소 픽셀
-- `alpha.edge_feather_px`: 가장자리 feather 강도
+## 배경 제거(누끼)
+- 목표 컴포넌트(연결된 픽셀) 1개만 남기고 나머지는 alpha 0 처리
+- `edge_feather_px`로 가장자리 부드럽게 처리
 
-## 빗겨 나갈 때 튜닝
-- 항목별로 `search_rect`를 더 타이트하게 줄입니다.
-- 항목별로 `min_iou_with_bbox`를 올리면 잘못된 auto 검출을 더 엄격히 거절합니다.
-- 항목별로 `refine_margin`을 줄이면 인접 캐릭터 영향이 줄어듭니다.
+파라미터:
+- `alpha.bg_color_tolerance`
+- `alpha.target_component_tolerance`
+- `alpha.component_min_area`
+- `alpha.edge_feather_px`
+
+## 소스 이미지
+- `source_image`가 없으면 같은 `Art/Reference` 폴더의 첫 이미지를 자동 탐색합니다.
+- 이미지가 전혀 없으면 `--dry-run`만 동작합니다.
