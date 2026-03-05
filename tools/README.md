@@ -43,7 +43,11 @@ python3 tools/extract_sprites.py --dry-run
 - `frame_ranges`: 모션별 사용 컬럼 범위 `{ "death": [0, 1] }`
 - `save_row_strip`: 행 전체(또는 frame_ranges 범위) 스트립 PNG 저장
 - `save_frames`: 프레임 단위 PNG 저장
+- `cell_offset_px`: 전체 셀 크롭 오프셋 `[x, y]` (약간 빗겨 잘릴 때 미세 보정)
 - `strip_output_dir`, `frame_output_dir`: 출력 경로
+
+추가 참고:
+- 그리드 폭/높이가 나누어떨어지지 않아도, 내부적으로 경계를 반올림해서 누적 오차를 줄입니다.
 
 실행 시 로그 예:
 - `[motion] strip idle: row=0 cols=0-3 output=.../idle.png`

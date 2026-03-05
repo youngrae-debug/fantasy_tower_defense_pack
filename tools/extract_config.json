@@ -79,6 +79,10 @@
       1536
     ],
     "cell_margin_px": 0,
+    "cell_offset_px": [
+      0,
+      0
+    ],
     "motion_names": [
       "idle",
       "walk",

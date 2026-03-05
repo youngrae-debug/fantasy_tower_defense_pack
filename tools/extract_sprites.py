@@ -158,6 +158,13 @@ def normalize_motion_name(name: str) -> str:
     return "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in name.strip().lower())
 
 
+def build_grid_edges(start: int, end: int, count: int) -> list[int]:
+    if count <= 0:
+        raise ValueError("grid count must be a positive integer")
+    span = end - start
+    return [start + int(round((span * i) / count)) for i in range(count + 1)]
+
+
 def save_motion_slices(source: Path, cfg: Dict[str, object], dry_run: bool = False) -> int:
     motion = cfg.get("motion_sheet")
     if not motion:
@@ -182,12 +189,18 @@ def save_motion_slices(source: Path, cfg: Dict[str, object], dry_run: bool = Fal
     if sx1 <= sx0 or sy1 <= sy0:
         raise ValueError("motion_sheet.sheet_rect resolves to an empty area")
 
-    cell_w = int((sx1 - sx0) / cols)
-    cell_h = int((sy1 - sy0) / rows)
-    if cell_w <= 0 or cell_h <= 0:
-        raise ValueError("motion_sheet grid cell size became 0; check sheet_rect/rows/cols")
+    col_edges = build_grid_edges(sx0, sx1, cols)
+    row_edges = build_grid_edges(sy0, sy1, rows)
+    if any(col_edges[i + 1] <= col_edges[i] for i in range(cols)):
+        raise ValueError("motion_sheet has invalid column edges; check sheet_rect/cols")
+    if any(row_edges[i + 1] <= row_edges[i] for i in range(rows)):
+        raise ValueError("motion_sheet has invalid row edges; check sheet_rect/rows")
 
     margin = int(motion.get("cell_margin_px", 0))
+    offset = motion.get("cell_offset_px", [0, 0])
+    if len(offset) != 2:
+        raise ValueError("motion_sheet.cell_offset_px must be [x, y]")
+    offset_x, offset_y = int(offset[0]), int(offset[1])
     names = list(motion.get("motion_names", []))
     frame_ranges = motion.get("frame_ranges", {})
     save_row_strip = bool(motion.get("save_row_strip", True))
@@ -204,10 +217,13 @@ def save_motion_slices(source: Path, cfg: Dict[str, object], dry_run: bool = Fal
         end_col = max(start_col, min(cols - 1, int(row_range[1])))
 
         if save_row_strip:
-            x0 = sx0 + start_col * cell_w + margin
-            x1 = sx0 + (end_col + 1) * cell_w - margin
-            y0 = sy0 + row * cell_h + margin
-            y1 = sy0 + (row + 1) * cell_h - margin
+            x0 = col_edges[start_col] + margin + offset_x
+            x1 = col_edges[end_col + 1] - margin + offset_x
+            y0 = row_edges[row] + margin + offset_y
+            y1 = row_edges[row + 1] - margin + offset_y
+            x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+            if x1 <= x0 or y1 <= y0:
+                raise ValueError(f"motion strip rect is empty for row={row}; check margin/offset")
             strip = rgba[y0:y1, x0:x1, :]
             strip_path = strip_dir / f"{motion_key}.png"
             print(f"[motion] strip {motion_name}: row={row} cols={start_col}-{end_col} output={strip_path}")
@@ -218,10 +234,13 @@ def save_motion_slices(source: Path, cfg: Dict[str, object], dry_run: bool = Fal
 
         if save_frames:
             for col in range(start_col, end_col + 1):
-                x0 = sx0 + col * cell_w + margin
-                x1 = sx0 + (col + 1) * cell_w - margin
-                y0 = sy0 + row * cell_h + margin
-                y1 = sy0 + (row + 1) * cell_h - margin
+                x0 = col_edges[col] + margin + offset_x
+                x1 = col_edges[col + 1] - margin + offset_x
+                y0 = row_edges[row] + margin + offset_y
+                y1 = row_edges[row + 1] - margin + offset_y
+                x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+                if x1 <= x0 or y1 <= y0:
+                    raise ValueError(f"motion frame rect is empty for row={row}, col={col}; check margin/offset")
                 frame = rgba[y0:y1, x0:x1, :]
                 frame_path = frame_dir / motion_key / f"{motion_key}_{col - start_col:02d}.png"
                 print(f"[motion] frame {motion_name}: row={row} col={col} output={frame_path}")
