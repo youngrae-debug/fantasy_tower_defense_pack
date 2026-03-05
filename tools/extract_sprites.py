@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Extract character turnarounds/items from a reference sheet.
+"""Extract character turnarounds/motion frames/items from a reference sheet.
 
 Supports two config styles:
 1) explicit `outputs` entries (legacy)
 2) `character_form` (new): auto-build front/side/back outputs from a 3-pose sheet
+3) `motion_sheet` (new): split a motion grid into per-motion strips and/or frames
 """
 
 from __future__ import annotations
@@ -151,6 +152,104 @@ def apply_bbox_adjustments(base_bbox: list[int], adjust: list[int]) -> list[int]
         int(base_bbox[2] + adjust[2]),
         int(base_bbox[3] + adjust[3]),
     ]
+
+
+def normalize_motion_name(name: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in name.strip().lower())
+
+
+def build_grid_edges(start: int, end: int, count: int) -> list[int]:
+    if count <= 0:
+        raise ValueError("grid count must be a positive integer")
+    span = end - start
+    return [start + int(round((span * i) / count)) for i in range(count + 1)]
+
+
+def save_motion_slices(source: Path, cfg: Dict[str, object], dry_run: bool = False) -> int:
+    motion = cfg.get("motion_sheet")
+    if not motion:
+        return 0
+
+    global np, Image
+    import numpy as np  # type: ignore[no-redef]
+    from PIL import Image  # type: ignore[no-redef]
+
+    image = Image.open(source).convert("RGBA")
+    rgba = np.array(image)
+    h, w, _ = rgba.shape
+
+    grid = motion.get("grid", {})
+    cols = int(grid.get("cols", 1))
+    rows = int(grid.get("rows", 1))
+    if cols <= 0 or rows <= 0:
+        raise ValueError("motion_sheet.grid cols/rows must be positive integers")
+
+    sheet_rect = motion.get("sheet_rect", [0, 0, w, h])
+    sx0, sy0, sx1, sy1 = clamp_rect(parse_rect(sheet_rect), w, h)
+    if sx1 <= sx0 or sy1 <= sy0:
+        raise ValueError("motion_sheet.sheet_rect resolves to an empty area")
+
+    col_edges = build_grid_edges(sx0, sx1, cols)
+    row_edges = build_grid_edges(sy0, sy1, rows)
+    if any(col_edges[i + 1] <= col_edges[i] for i in range(cols)):
+        raise ValueError("motion_sheet has invalid column edges; check sheet_rect/cols")
+    if any(row_edges[i + 1] <= row_edges[i] for i in range(rows)):
+        raise ValueError("motion_sheet has invalid row edges; check sheet_rect/rows")
+
+    margin = int(motion.get("cell_margin_px", 0))
+    offset = motion.get("cell_offset_px", [0, 0])
+    if len(offset) != 2:
+        raise ValueError("motion_sheet.cell_offset_px must be [x, y]")
+    offset_x, offset_y = int(offset[0]), int(offset[1])
+    names = list(motion.get("motion_names", []))
+    frame_ranges = motion.get("frame_ranges", {})
+    save_row_strip = bool(motion.get("save_row_strip", True))
+    save_frames = bool(motion.get("save_frames", True))
+    strip_dir = Path(motion.get("strip_output_dir", "Assets/Rogue2DKit/Art/Sprites/Characters/Motions/Strips"))
+    frame_dir = Path(motion.get("frame_output_dir", "Assets/Rogue2DKit/Art/Sprites/Characters/Motions/Frames"))
+
+    written = 0
+    for row in range(rows):
+        motion_name = names[row] if row < len(names) else f"motion_{row:02d}"
+        motion_key = normalize_motion_name(motion_name)
+        row_range = frame_ranges.get(motion_name, frame_ranges.get(motion_key, [0, cols - 1]))
+        start_col = max(0, min(cols - 1, int(row_range[0])))
+        end_col = max(start_col, min(cols - 1, int(row_range[1])))
+
+        if save_row_strip:
+            x0 = col_edges[start_col] + margin + offset_x
+            x1 = col_edges[end_col + 1] - margin + offset_x
+            y0 = row_edges[row] + margin + offset_y
+            y1 = row_edges[row + 1] - margin + offset_y
+            x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+            if x1 <= x0 or y1 <= y0:
+                raise ValueError(f"motion strip rect is empty for row={row}; check margin/offset")
+            strip = rgba[y0:y1, x0:x1, :]
+            strip_path = strip_dir / f"{motion_key}.png"
+            print(f"[motion] strip {motion_name}: row={row} cols={start_col}-{end_col} output={strip_path}")
+            if not dry_run:
+                strip_path.parent.mkdir(parents=True, exist_ok=True)
+                Image.fromarray(strip, mode="RGBA").save(strip_path)
+                written += 1
+
+        if save_frames:
+            for col in range(start_col, end_col + 1):
+                x0 = col_edges[col] + margin + offset_x
+                x1 = col_edges[col + 1] - margin + offset_x
+                y0 = row_edges[row] + margin + offset_y
+                y1 = row_edges[row + 1] - margin + offset_y
+                x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+                if x1 <= x0 or y1 <= y0:
+                    raise ValueError(f"motion frame rect is empty for row={row}, col={col}; check margin/offset")
+                frame = rgba[y0:y1, x0:x1, :]
+                frame_path = frame_dir / motion_key / f"{motion_key}_{col - start_col:02d}.png"
+                print(f"[motion] frame {motion_name}: row={row} col={col} output={frame_path}")
+                if not dry_run:
+                    frame_path.parent.mkdir(parents=True, exist_ok=True)
+                    Image.fromarray(frame, mode="RGBA").save(frame_path)
+                    written += 1
+
+    return written
 
 def component_mask_from_crop(crop: np.ndarray, bg: np.ndarray, expected_rect_in_crop: Rect, min_area: int, fg_tol: float) -> np.ndarray:
     fg_mask = dist_to_bg(crop, bg) > fg_tol
@@ -319,6 +418,10 @@ def run(config_path: Path, dry_run: bool = False) -> None:
     if source != configured_source:
         print(f"[warn] configured source missing: {configured_source}")
         print(f"[info] using detected reference image instead: {source}")
+
+    motion_written = save_motion_slices(source, cfg, dry_run=dry_run)
+    if cfg.get("motion_sheet"):
+        print(f"[info] motion_sheet processed entries={motion_written}")
 
     global np, Image
     import numpy as np  # type: ignore[no-redef]

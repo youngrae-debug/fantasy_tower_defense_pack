@@ -67,6 +67,41 @@
     "use_detected_bbox": false,
     "use_refine": false
   },
+  "motion_sheet": {
+    "grid": {
+      "cols": 4,
+      "rows": 6
+    },
+    "sheet_rect": [
+      0,
+      0,
+      1536,
+      1536
+    ],
+    "cell_margin_px": 0,
+    "cell_offset_px": [
+      0,
+      0
+    ],
+    "motion_names": [
+      "idle",
+      "walk",
+      "attack",
+      "skill",
+      "hit",
+      "death"
+    ],
+    "frame_ranges": {
+      "death": [
+        0,
+        1
+      ]
+    },
+    "save_row_strip": true,
+    "save_frames": true,
+    "strip_output_dir": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Motions/Strips",
+    "frame_output_dir": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Motions/Frames"
+  },
   "outputs": [
     {
       "name": "rogue_front",
