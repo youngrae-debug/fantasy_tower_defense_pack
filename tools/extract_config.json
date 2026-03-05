@@ -105,15 +105,15 @@
       "output": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Turnaround/rogue_front.png",
       "bbox": [
         -36,
-        105,
-        547,
-        948
+        125,
+        316,
+        1176
       ],
       "search_rect": [
         0,
-        81,
-        511,
-        972
+        101,
+        280,
+        1200
       ],
       "padding": 14,
       "min_area": 7000,
@@ -129,16 +129,16 @@
       "kind": "character",
       "output": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Turnaround/rogue_side.png",
       "bbox": [
-        575,
-        105,
-        959,
-        948
+        344,
+        125,
+        497,
+        1176
       ],
       "search_rect": [
-        511,
-        81,
-        1023,
-        972
+        280,
+        101,
+        561,
+        1200
       ],
       "padding": 14,
       "min_area": 7000,
@@ -154,16 +154,16 @@
       "kind": "character",
       "output": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Turnaround/rogue_back.png",
       "bbox": [
-        992,
-        105,
-        1567,
-        948
+        530,
+        125,
+        873,
+        1176
       ],
       "search_rect": [
-        1023,
-        81,
-        1536,
-        972
+        561,
+        101,
+        842,
+        1200
       ],
       "padding": 14,
       "min_area": 7000,
