@@ -3,6 +3,9 @@
 `extract_sprites.py`는 레퍼런스 시트를 캐릭터 `front/side/back` PNG로 분리합니다.
 (아이템 폼은 나중에 별도 추가 가능)
 
+또한 `motion_sheet` 설정을 사용하면, 모션 스프라이트 시트를 **행(모션) 기준으로 분리 저장**하고,
+필요하면 프레임 단위로도 저장할 수 있습니다.
+
 ## 실행
 ```bash
 python3 tools/extract_sprites.py
@@ -29,6 +32,22 @@ python3 tools/extract_sprites.py --dry-run
   - `side`를 타이트하게: `[40, 0, -40, 0]`
 
 실행 시 `character_form`이 `outputs` 3개로 확장되어 config에 저장됩니다.
+
+## motion_sheet 방식 (모션 분리 저장)
+예시처럼 모션이 행으로 정렬된 시트에서 각 모션을 별도 PNG로 저장합니다.
+
+주요 키:
+- `grid.cols`, `grid.rows`: 시트의 프레임 그리드
+- `sheet_rect`: 실제 프레임이 있는 영역 `[x0, y0, x1, y1]`
+- `motion_names`: 각 행 이름 (예: `idle, walk, attack, skill, hit, death`)
+- `frame_ranges`: 모션별 사용 컬럼 범위 `{ "death": [0, 1] }`
+- `save_row_strip`: 행 전체(또는 frame_ranges 범위) 스트립 PNG 저장
+- `save_frames`: 프레임 단위 PNG 저장
+- `strip_output_dir`, `frame_output_dir`: 출력 경로
+
+실행 시 로그 예:
+- `[motion] strip idle: row=0 cols=0-3 output=.../idle.png`
+- `[motion] frame idle: row=0 col=0 output=.../idle/idle_00.png`
 
 ## 중요한 포인트 (지금 문제 원인)
 - `pose_overrides` 값이 반영되어도, 자동탐지/자동refine가 켜져 있으면 박스가 다시 바뀔 수 있습니다.
