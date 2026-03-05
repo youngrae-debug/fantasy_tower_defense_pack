@@ -11,6 +11,29 @@
 python3 tools/extract_sprites.py
 ```
 
+기본 실행 동작:
+- `motion_sheet`가 config에 있으면, `source_image`가 있는 `Reference` 폴더의 이미지들을 자동으로 순회해서 모션을 분할 저장합니다.
+- 출력 기본 경로는 `Assets/<package_name>/Art/Sprites/Characters` 입니다.
+- 캐릭터 폴더명은 `_` 앞 접두어가 아니라 **reference 파일명 전체(확장자 제외)**를 사용합니다.
+  - 예: `powwow_mo2.png` -> `.../Sprites/Characters/powwow_mo2/Motions/...`
+- `Strips`는 기본으로 **6등분**해서 저장합니다.
+- `Strips`는 기본으로 **아래로 36px 오프셋**해서 저장합니다.
+
+여러 PNG를 한 번에 처리(파일명 `_` 앞 기준 폴더 자동 생성 + 프레임 정렬):
+```bash
+python3 tools/extract_sprites.py --inputs "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Motions/Frames/*/*.png"
+```
+
+여러 모션 시트를 한 번에 분할 저장(`motion_sheet` 설정 사용):
+```bash
+python3 tools/extract_sprites.py --inputs "Assets/Rogue2DKit/Art/Reference/*_mo*.png" --batch-motion --output-root "Assets/Rogue2DKit/Art/Sprites/Characters"
+```
+
+출력 루트 지정:
+```bash
+python3 tools/extract_sprites.py --inputs "Assets/.../*.png" --output-root "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Motions/Aligned"
+```
+
 검증만:
 ```bash
 python3 tools/extract_sprites.py --dry-run
@@ -43,6 +66,11 @@ python3 tools/extract_sprites.py --dry-run
 - `frame_ranges`: 모션별 사용 컬럼 범위 `{ "death": [0, 1] }`
 - `save_row_strip`: 행 전체(또는 frame_ranges 범위) 스트립 PNG 저장
 - `save_frames`: 프레임 단위 PNG 저장
+- `frames_from_strips`: `true`면 프레임을 원본 그리드 대신 저장된 스트립 좌표 기준으로 분할
+- `frame_x_shift_px`: 모션별 프레임 X축 보정값 (예: `"attack": [6, 3, -3, -6]`)
+- `character_frame_x_shift_px`: 캐릭터별로 `frame_x_shift_px`를 오버라이드
+- `strip_rows`: 스트립을 세로로 몇 등분해서 저장할지 (기본값: `grid.rows`, 기본 실행에서는 `6`으로 강제)
+- `strip_offset_px`: 스트립 전용 오프셋 `[x, y]` (기본 실행에서는 `[0, 36]`)
 - `cell_offset_px`: 전체 셀 크롭 오프셋 `[x, y]` (약간 빗겨 잘릴 때 미세 보정)
 - `strip_output_dir`, `frame_output_dir`: 출력 경로
 
@@ -56,6 +84,15 @@ python3 tools/extract_sprites.py --dry-run
 ## 중요한 포인트 (지금 문제 원인)
 - `pose_overrides` 값이 반영되어도, 자동탐지/자동refine가 켜져 있으면 박스가 다시 바뀔 수 있습니다.
 - 그래서 수동으로 영역을 정확히 줄이고 싶다면 `use_detected_bbox: false`, `use_refine: false`로 고정하세요.
+
+## batch 모드 정렬 규칙
+- `--inputs`를 주면 config 기반 분할 대신 배치 모드로 동작합니다.
+- `--batch-motion`까지 같이 주면, 일반 배치 대신 `motion_sheet` 기준 모션 분할을 수행합니다.
+- 출력 폴더는 파일명 `_` 앞 접두어로 자동 생성됩니다.
+  - 예: `attack_00.png` -> `<output-root>/attack/attack_00.png`
+  - 예: `powwow_mo2.png` + `--batch-motion` -> `<output-root>/powwow/Motions/Frames/...`
+- 같은 접두어 그룹(예: `attack_*`) 안에서는 가장 큰 프레임 크기에 맞춘 공통 캔버스를 만들고, 기본값으로 `bottom-center` 정렬해서 위치 흔들림을 줄입니다.
+- 정렬 기준은 `--align-anchor bottom-center|center`로 바꿀 수 있습니다.
 
 ## 배경 제거 옵션
 - `character_form.remove_background: false` 면 배경 제거 없이 그대로 저장

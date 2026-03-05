@@ -10,7 +10,9 @@ Supports two config styles:
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import os
 from collections import deque
 from pathlib import Path
 from statistics import median
@@ -201,14 +203,59 @@ def save_motion_slices(source: Path, cfg: Dict[str, object], dry_run: bool = Fal
     if len(offset) != 2:
         raise ValueError("motion_sheet.cell_offset_px must be [x, y]")
     offset_x, offset_y = int(offset[0]), int(offset[1])
+    strip_offset = motion.get("strip_offset_px", [0, 0])
+    if len(strip_offset) != 2:
+        raise ValueError("motion_sheet.strip_offset_px must be [x, y]")
+    strip_offset_x, strip_offset_y = int(strip_offset[0]), int(strip_offset[1])
     names = list(motion.get("motion_names", []))
     frame_ranges = motion.get("frame_ranges", {})
+    frame_x_shift_px = motion.get("frame_x_shift_px", {})
     save_row_strip = bool(motion.get("save_row_strip", True))
     save_frames = bool(motion.get("save_frames", True))
+    frames_from_strips = bool(motion.get("frames_from_strips", False))
+    strip_rows = int(motion.get("strip_rows", rows))
+    if strip_rows <= 0:
+        raise ValueError("motion_sheet.strip_rows must be a positive integer")
     strip_dir = Path(motion.get("strip_output_dir", "Assets/Rogue2DKit/Art/Sprites/Characters/Motions/Strips"))
     frame_dir = Path(motion.get("frame_output_dir", "Assets/Rogue2DKit/Art/Sprites/Characters/Motions/Frames"))
 
     written = 0
+    strip_rects: list[Rect] = []
+    strip_row_edges = build_grid_edges(sy0, sy1, strip_rows)
+
+    if save_row_strip:
+        for strip_row in range(strip_rows):
+            motion_name = names[strip_row] if strip_row < len(names) else f"strip_{strip_row:02d}"
+            motion_key = normalize_motion_name(motion_name)
+            x0 = sx0 + margin + offset_x + strip_offset_x
+            x1 = sx1 - margin + offset_x + strip_offset_x
+            y0 = strip_row_edges[strip_row] + margin + offset_y + strip_offset_y
+            y1 = strip_row_edges[strip_row + 1] - margin + offset_y + strip_offset_y
+            x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+            if x1 <= x0 or y1 <= y0:
+                raise ValueError(f"motion strip rect is empty for strip_row={strip_row}; check strip_rows/margin/offset")
+            strip_rects.append((x0, y0, x1, y1))
+            strip = rgba[y0:y1, x0:x1, :]
+            strip_path = strip_dir / f"{motion_key}.png"
+            print(f"[motion] strip {motion_name}: row={strip_row}/{strip_rows} rect=({x0},{y0},{x1},{y1}) output={strip_path}")
+            if not dry_run:
+                strip_path.parent.mkdir(parents=True, exist_ok=True)
+                Image.fromarray(strip, mode="RGBA").save(strip_path)
+                written += 1
+    else:
+        for strip_row in range(strip_rows):
+            x0 = sx0 + margin + offset_x + strip_offset_x
+            x1 = sx1 - margin + offset_x + strip_offset_x
+            y0 = strip_row_edges[strip_row] + margin + offset_y + strip_offset_y
+            y1 = strip_row_edges[strip_row + 1] - margin + offset_y + strip_offset_y
+            x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+            if x1 <= x0 or y1 <= y0:
+                raise ValueError(f"motion strip rect is empty for strip_row={strip_row}; check strip_rows/margin/offset")
+            strip_rects.append((x0, y0, x1, y1))
+
+    if frames_from_strips and rows != strip_rows:
+        raise ValueError("motion_sheet.frames_from_strips requires strip_rows == grid.rows")
+
     for row in range(rows):
         motion_name = names[row] if row < len(names) else f"motion_{row:02d}"
         motion_key = normalize_motion_name(motion_name)
@@ -216,38 +263,73 @@ def save_motion_slices(source: Path, cfg: Dict[str, object], dry_run: bool = Fal
         start_col = max(0, min(cols - 1, int(row_range[0])))
         end_col = max(start_col, min(cols - 1, int(row_range[1])))
 
-        if save_row_strip:
-            x0 = col_edges[start_col] + margin + offset_x
-            x1 = col_edges[end_col + 1] - margin + offset_x
-            y0 = row_edges[row] + margin + offset_y
-            y1 = row_edges[row + 1] - margin + offset_y
-            x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
-            if x1 <= x0 or y1 <= y0:
-                raise ValueError(f"motion strip rect is empty for row={row}; check margin/offset")
-            strip = rgba[y0:y1, x0:x1, :]
-            strip_path = strip_dir / f"{motion_key}.png"
-            print(f"[motion] strip {motion_name}: row={row} cols={start_col}-{end_col} output={strip_path}")
-            if not dry_run:
-                strip_path.parent.mkdir(parents=True, exist_ok=True)
-                Image.fromarray(strip, mode="RGBA").save(strip_path)
-                written += 1
+        row_shift_cfg = frame_x_shift_px.get(motion_name, frame_x_shift_px.get(motion_key, [])) if isinstance(frame_x_shift_px, dict) else []
+
+        def shift_for_col(col_index: int) -> int:
+            if isinstance(row_shift_cfg, list) and col_index < len(row_shift_cfg):
+                return int(row_shift_cfg[col_index])
+            if isinstance(row_shift_cfg, dict):
+                if str(col_index) in row_shift_cfg:
+                    return int(row_shift_cfg[str(col_index)])
+                if col_index in row_shift_cfg:
+                    return int(row_shift_cfg[col_index])
+            return 0
 
         if save_frames:
-            for col in range(start_col, end_col + 1):
-                x0 = col_edges[col] + margin + offset_x
-                x1 = col_edges[col + 1] - margin + offset_x
-                y0 = row_edges[row] + margin + offset_y
-                y1 = row_edges[row + 1] - margin + offset_y
-                x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
-                if x1 <= x0 or y1 <= y0:
-                    raise ValueError(f"motion frame rect is empty for row={row}, col={col}; check margin/offset")
-                frame = rgba[y0:y1, x0:x1, :]
-                frame_path = frame_dir / motion_key / f"{motion_key}_{col - start_col:02d}.png"
-                print(f"[motion] frame {motion_name}: row={row} col={col} output={frame_path}")
-                if not dry_run:
-                    frame_path.parent.mkdir(parents=True, exist_ok=True)
-                    Image.fromarray(frame, mode="RGBA").save(frame_path)
-                    written += 1
+            if frames_from_strips:
+                sx0_row, sy0_row, sx1_row, sy1_row = strip_rects[row]
+                strip_col_edges = build_grid_edges(sx0_row, sx1_row, cols)
+                for col in range(start_col, end_col + 1):
+                    base_x0 = strip_col_edges[col]
+                    base_x1 = strip_col_edges[col + 1]
+                    width_px = base_x1 - base_x0
+                    shift_px = shift_for_col(col)
+                    x0 = base_x0 + shift_px
+                    x1 = x0 + width_px
+                    if x0 < 0:
+                        x0 = 0
+                        x1 = width_px
+                    if x1 > w:
+                        x1 = w
+                        x0 = w - width_px
+                    y0 = sy0_row
+                    y1 = sy1_row
+                    x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+                    if x1 <= x0 or y1 <= y0:
+                        raise ValueError(f"motion frame rect is empty for row={row}, col={col}; check strip settings")
+                    frame = rgba[y0:y1, x0:x1, :]
+                    frame_path = frame_dir / motion_key / f"{motion_key}_{col - start_col:02d}.png"
+                    print(f"[motion] frame {motion_name}: row={row} col={col} source=strip shift={shift_px} output={frame_path}")
+                    if not dry_run:
+                        frame_path.parent.mkdir(parents=True, exist_ok=True)
+                        Image.fromarray(frame, mode="RGBA").save(frame_path)
+                        written += 1
+            else:
+                for col in range(start_col, end_col + 1):
+                    base_x0 = col_edges[col] + margin + offset_x
+                    base_x1 = col_edges[col + 1] - margin + offset_x
+                    width_px = base_x1 - base_x0
+                    shift_px = shift_for_col(col)
+                    x0 = base_x0 + shift_px
+                    x1 = x0 + width_px
+                    if x0 < 0:
+                        x0 = 0
+                        x1 = width_px
+                    if x1 > w:
+                        x1 = w
+                        x0 = w - width_px
+                    y0 = row_edges[row] + margin + offset_y
+                    y1 = row_edges[row + 1] - margin + offset_y
+                    x0, y0, x1, y1 = clamp_rect((x0, y0, x1, y1), w, h)
+                    if x1 <= x0 or y1 <= y0:
+                        raise ValueError(f"motion frame rect is empty for row={row}, col={col}; check margin/offset")
+                    frame = rgba[y0:y1, x0:x1, :]
+                    frame_path = frame_dir / motion_key / f"{motion_key}_{col - start_col:02d}.png"
+                    print(f"[motion] frame {motion_name}: row={row} col={col} shift={shift_px} output={frame_path}")
+                    if not dry_run:
+                        frame_path.parent.mkdir(parents=True, exist_ok=True)
+                        Image.fromarray(frame, mode="RGBA").save(frame_path)
+                        written += 1
 
     return written
 
@@ -333,6 +415,216 @@ def guess_source_from_reference(source: Path) -> Optional[Path]:
         return None
     candidates = sorted([p for p in ref_dir.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}])
     return candidates[0] if candidates else None
+
+
+def split_prefix_group(stem: str) -> str:
+    return stem.split("_", 1)[0].strip() or stem
+
+
+def expand_input_patterns(patterns: Iterable[str]) -> list[Path]:
+    ordered: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in patterns:
+        matched = [Path(p) for p in glob.glob(pattern, recursive=True)]
+        if not matched:
+            matched = [Path(pattern)]
+        for path in matched:
+            if not path.exists() or not path.is_file():
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            ordered.append(resolved)
+    return ordered
+
+
+def alpha_bbox(alpha: np.ndarray) -> Optional[Rect]:
+    ys, xs = np.where(alpha > 0)
+    if len(xs) == 0:
+        return None
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+def align_frames_in_place(frame_root: Path, align_anchor: str = "bottom-center", bg_color_tolerance: float = 44.0, dry_run: bool = False) -> int:
+    global np, Image
+    import numpy as np  # type: ignore[no-redef]
+    from PIL import Image  # type: ignore[no-redef]
+
+    if not frame_root.exists():
+        return 0
+
+    files = sorted([p for p in frame_root.rglob("*.png") if p.is_file()])
+    if not files:
+        return 0
+
+    grouped: Dict[str, list[dict]] = {}
+    for path in files:
+        src = Image.open(path)
+        has_alpha = "A" in src.getbands()
+        rgba = np.array(src.convert("RGBA"))
+        if has_alpha:
+            alpha = rgba[:, :, 3].copy()
+        else:
+            rgb = rgba[:, :, :3]
+            bg = sample_background_color(rgb, margin=24)
+            fg_mask = dist_to_bg(rgb, bg) > float(bg_color_tolerance)
+            alpha = np.where(fg_mask, 255, 0).astype(np.uint8)
+
+        bbox = alpha_bbox(alpha)
+        if bbox is None:
+            crop = np.zeros((1, 1, 4), dtype=np.uint8)
+        else:
+            x0, y0, x1, y1 = bbox
+            crop = rgba[y0:y1, x0:x1, :].copy()
+            crop[:, :, 3] = alpha[y0:y1, x0:x1]
+
+        # Keep separate groups per motion folder so unrelated motions do not share a canvas.
+        group = f"{path.parent.as_posix()}::{split_prefix_group(path.stem)}"
+        grouped.setdefault(group, []).append({"path": path, "crop": crop})
+
+    written = 0
+    for _, entries in grouped.items():
+        max_w = max(int(item["crop"].shape[1]) for item in entries)
+        max_h = max(int(item["crop"].shape[0]) for item in entries)
+        for item in entries:
+            crop = item["crop"]
+            ch, cw = int(crop.shape[0]), int(crop.shape[1])
+            canvas = np.zeros((max_h, max_w, 4), dtype=np.uint8)
+            x = (max_w - cw) // 2
+            y = (max_h - ch) // 2
+            if align_anchor == "bottom-center":
+                y = max_h - ch
+            canvas[y : y + ch, x : x + cw, :] = crop
+
+            out_path = item["path"]
+            print(f"[align] frame={out_path.name} size={cw}x{ch} canvas={max_w}x{max_h} output={out_path}")
+            if not dry_run:
+                Image.fromarray(canvas, mode="RGBA").save(out_path)
+                written += 1
+
+    return written
+
+
+def run_batch_motion_inputs(
+    inputs: list[str],
+    cfg: Dict[str, object],
+    output_root: Optional[Path],
+    dry_run: bool,
+    align_anchor: str = "bottom-center",
+) -> None:
+    motion = cfg.get("motion_sheet")
+    if not motion:
+        raise ValueError("--batch-motion requires motion_sheet in config")
+
+    files = expand_input_patterns(inputs)
+    if not files:
+        raise FileNotFoundError("No input files found for --inputs")
+
+    if output_root is None:
+        common_parent = Path(os.path.commonpath([str(p.parent) for p in files]))
+        output_root = common_parent / "extracted_motions"
+
+    total_written = 0
+    total_aligned = 0
+    for source in files:
+        # For reference sheets, keep directory name equal to source filename (without extension).
+        character = source.stem
+        motion_local = dict(motion)
+        character_shift_cfg = motion.get("character_frame_x_shift_px", {})
+        if isinstance(character_shift_cfg, dict) and character in character_shift_cfg:
+            motion_local["frame_x_shift_px"] = character_shift_cfg[character]
+        motion_local["strip_rows"] = 6
+        # Make strips noticeably lower as requested; frames keep their original offsets.
+        motion_local["strip_offset_px"] = [0, 36]
+        motion_local["strip_output_dir"] = str(output_root / character / "Motions" / "Strips")
+        motion_local["frame_output_dir"] = str(output_root / character / "Motions" / "Frames")
+        cfg_local = {"motion_sheet": motion_local}
+
+        print(f"[batch-motion] source={source} character={character}")
+        written = save_motion_slices(source, cfg_local, dry_run=dry_run)
+        total_written += written
+
+        if bool(motion_local.get("save_frames", True)):
+            aligned = align_frames_in_place(
+                Path(motion_local["frame_output_dir"]),
+                align_anchor=align_anchor,
+                dry_run=dry_run,
+            )
+            total_aligned += aligned
+
+    print(f"[info] batch-motion processed files={len(files)} written={total_written} aligned={total_aligned}")
+
+
+def run_batch_inputs(
+    inputs: list[str],
+    output_root: Optional[Path],
+    dry_run: bool,
+    align_anchor: str = "bottom-center",
+    bg_color_tolerance: float = 44.0,
+) -> None:
+    global np, Image
+    import numpy as np  # type: ignore[no-redef]
+    from PIL import Image  # type: ignore[no-redef]
+
+    files = expand_input_patterns(inputs)
+    if not files:
+        raise FileNotFoundError("No input files found for --inputs")
+
+    if output_root is None:
+        common_parent = Path(os.path.commonpath([str(p.parent) for p in files]))
+        output_root = common_parent / "extracted"
+
+    grouped: Dict[str, list[dict]] = {}
+    for path in files:
+        src = Image.open(path)
+        has_alpha = "A" in src.getbands()
+        rgba = np.array(src.convert("RGBA"))
+        if has_alpha:
+            alpha = rgba[:, :, 3].copy()
+        else:
+            rgb = rgba[:, :, :3]
+            bg = sample_background_color(rgb, margin=24)
+            fg_mask = dist_to_bg(rgb, bg) > float(bg_color_tolerance)
+            alpha = np.where(fg_mask, 255, 0).astype(np.uint8)
+
+        bbox = alpha_bbox(alpha)
+        if bbox is None:
+            # Keep an all-transparent fallback frame to preserve frame count and ordering.
+            crop = np.zeros((1, 1, 4), dtype=np.uint8)
+        else:
+            x0, y0, x1, y1 = bbox
+            crop = rgba[y0:y1, x0:x1, :].copy()
+            crop[:, :, 3] = alpha[y0:y1, x0:x1]
+
+        group = split_prefix_group(path.stem)
+        grouped.setdefault(group, []).append({"path": path, "crop": crop})
+
+    written = 0
+    for group, entries in grouped.items():
+        max_w = max(int(item["crop"].shape[1]) for item in entries)
+        max_h = max(int(item["crop"].shape[0]) for item in entries)
+        out_dir = output_root / group
+
+        for item in entries:
+            crop = item["crop"]
+            ch, cw = int(crop.shape[0]), int(crop.shape[1])
+            canvas = np.zeros((max_h, max_w, 4), dtype=np.uint8)
+
+            x = (max_w - cw) // 2
+            y = (max_h - ch) // 2
+            if align_anchor == "bottom-center":
+                y = max_h - ch
+
+            canvas[y : y + ch, x : x + cw, :] = crop
+            out_path = out_dir / item["path"].name
+            print(f"[batch] group={group} size={cw}x{ch} canvas={max_w}x{max_h} output={out_path}")
+            if not dry_run:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                Image.fromarray(canvas, mode="RGBA").save(out_path)
+                written += 1
+
+    print(f"[info] batch processed groups={len(grouped)} files={len(files)} written={written}")
 
 
 def build_outputs_from_character_form(cfg: Dict[str, object], width: int, height: int) -> list[Dict[str, object]]:
@@ -486,8 +778,76 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Extract sprites from a turnaround reference sheet")
     parser.add_argument("--config", default="tools/extract_config.json", help="Path to extraction config JSON")
     parser.add_argument("--dry-run", action="store_true", help="Resolve boxes without writing files")
+    parser.add_argument(
+        "--inputs",
+        nargs="+",
+        help="Batch mode input files/globs. Outputs are grouped by filename prefix before '_' (e.g., attack_00 -> attack/).",
+    )
+    parser.add_argument(
+        "--output-root",
+        default=None,
+        help="Batch mode output root directory (default: <first-input-dir>/extracted)",
+    )
+    parser.add_argument(
+        "--align-anchor",
+        default="bottom-center",
+        choices=["bottom-center", "center"],
+        help="Batch mode frame alignment anchor inside each prefix group canvas",
+    )
+    parser.add_argument(
+        "--batch-motion",
+        action="store_true",
+        help="When used with --inputs, split each input as motion_sheet using config and output per character folder.",
+    )
     args = parser.parse_args()
-    run(Path(args.config), dry_run=args.dry_run)
+    if args.inputs:
+        output_root = Path(args.output_root) if args.output_root else None
+        if args.batch_motion:
+            cfg_path = Path(args.config)
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            run_batch_motion_inputs(
+                inputs=args.inputs,
+                cfg=cfg,
+                output_root=output_root,
+                dry_run=args.dry_run,
+                align_anchor=args.align_anchor,
+            )
+            return
+        run_batch_inputs(
+            inputs=args.inputs,
+            output_root=output_root,
+            dry_run=args.dry_run,
+            align_anchor=args.align_anchor,
+        )
+        return
+
+    cfg_path = Path(args.config)
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    if cfg.get("motion_sheet"):
+        configured_source = Path(str(cfg.get("source_image", "")))
+        ref_dir = configured_source.parent if str(configured_source) else Path("Assets")
+        if not ref_dir.exists():
+            ref_dir = Path("Assets")
+
+        patterns = [
+            str(ref_dir / "*.png"),
+            str(ref_dir / "*.jpg"),
+            str(ref_dir / "*.jpeg"),
+            str(ref_dir / "*.webp"),
+        ]
+        package_name = str(cfg.get("package_name", "Rogue2DKit"))
+        default_output_root = Path(f"Assets/{package_name}/Art/Sprites/Characters")
+        output_root = Path(args.output_root) if args.output_root else default_output_root
+        run_batch_motion_inputs(
+            inputs=patterns,
+            cfg=cfg,
+            output_root=output_root,
+            dry_run=args.dry_run,
+            align_anchor=args.align_anchor,
+        )
+        return
+
+    run(cfg_path, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

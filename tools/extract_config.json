@@ -97,8 +97,17 @@
         1
       ]
     },
+    "frame_x_shift_px": {
+      "idle": [20, 10, -10, -30],
+      "walk": [20, 10, -10, -30],
+      "attack": [20, 10, -10, -30],
+      "skill": [20, 10, -10, -20],
+      "hit": [20, 0, -30, -40],
+      "death": [20, 25]
+    },
     "save_row_strip": true,
     "save_frames": true,
+    "frames_from_strips": true,
     "strip_output_dir": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Motions/Strips",
     "frame_output_dir": "Assets/Rogue2DKit/Art/Sprites/Characters/Rogue/Motions/Frames"
   },
